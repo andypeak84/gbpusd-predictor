@@ -339,6 +339,13 @@ class MainActivity : AppCompatActivity() {
         addLine(detailSection, "USD basket 5d change (vs EUR/JPY/CAD/CHF): ${fmtPct(latest.usdBasketChange5d)}", 14f, Gravity.START)
         addLine(detailSection, "GBP/USD realised vol (10d, daily σ): ${fmt(latest.gbpUsdRealVol10d, "%.4f")}", 14f, Gravity.START)
         addLine(detailSection, "RSI(14): ${fmt(latest.rsi14, "%.1f")}", 14f, Gravity.START)
+        addLine(detailSection, "US 2yr yield 5d change: ${fmtPct(latest.us2yChange5d)}", 14f, Gravity.START)
+        addLine(detailSection, "VIX 5d change: ${fmtPct(latest.vixChange5d)}", 14f, Gravity.START)
+        addLine(detailSection, "GBP/USD 1d change: ${fmtPct(latest.gbpUsdChange1d)}", 14f, Gravity.START)
+        addLine(detailSection, "USD basket 1d change (vs EUR/JPY/CAD/CHF): ${fmtPct(latest.usdBasketChange1d)}", 14f, Gravity.START)
+        addLine(detailSection, "Day of week: ${fmt(latest.dayOfWeek, "%.0f")}", 14f, Gravity.START)
+        addLine(detailSection, "Month: ${fmt(latest.monthOfYear, "%.0f")}", 14f, Gravity.START)
+        addLine(detailSection, "Month end (next business day): ${fmt(latest.isMonthEnd, "%.0f")}", 14f, Gravity.START)
         addLine(
             detailSection,
             "A \u201c—\u201d above means this field had no real, date-verified reading for ${latest.date} -- it was left out of the prediction (the model handles missing features natively), not filled in with a guess. See Bootstrap Log for why.",

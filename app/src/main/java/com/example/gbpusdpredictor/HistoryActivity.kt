@@ -128,7 +128,7 @@ class HistoryActivity : AppCompatActivity() {
 
             addRow(
                 rows,
-                listOf("Date", "Captured (UTC)", "GBP/USD", "5d chg", "Predicted", "Pred chg", "UK 2yr yield", "US 2y", "VIX", "Oil 5d chg", "RSI(14)", "GBP/EUR 5d", "EUR/USD 5d", "USD basket 5d", "Realised vol 10d"),
+                listOf("Date", "Captured (UTC)", "GBP/USD", "5d chg", "Predicted", "Pred chg", "UK 2yr yield", "US 2y", "VIX", "Oil 5d chg", "RSI(14)", "GBP/EUR 5d", "EUR/USD 5d", "USD basket 5d", "Realised vol 10d", "US 2y 5d chg", "VIX 5d chg", "GBP/USD 1d", "USD basket 1d", "Day of wk", "Month", "Month end"),
                 bold = true
             )
             all.forEach { d ->
@@ -149,7 +149,14 @@ class HistoryActivity : AppCompatActivity() {
                         d.gbpEurChange5d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
                         d.eurUsdChange5d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
                         d.usdBasketChange5d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
-                        d.gbpUsdRealVol10d?.let { "%.4f".format(Locale.UK, it) } ?: "—"
+                        d.gbpUsdRealVol10d?.let { "%.4f".format(Locale.UK, it) } ?: "—",
+                        d.us2yChange5d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
+                        d.vixChange5d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
+                        d.gbpUsdChange1d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
+                        d.usdBasketChange1d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
+                        fmt(d.dayOfWeek, "%.0f"),
+                        fmt(d.monthOfYear, "%.0f"),
+                        fmt(d.isMonthEnd, "%.0f")
                     ),
                     bold = false
                 )

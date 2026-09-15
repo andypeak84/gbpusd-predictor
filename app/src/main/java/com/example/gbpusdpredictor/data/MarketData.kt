@@ -76,6 +76,29 @@ data class MarketData(
     // and then removed: CBOE discontinued that series in March 2025, so it would have been
     // null on every row from then on.) Null follows the usual rule: real reading or absent.
     val gbpUsdRealVol10d: Double? = null,
+    // v8 -> v9: two kinds of new feature, both zero-new-fetch.
+    //
+    // Tier A -- momentum companions derived from history already fetched every refresh for
+    // us2y/vix/gbpUsd/the USD basket (no new network call): us2yChange5d, vixChange5d
+    // (5-business-day % changes, same changeNDaysAgoFromSeries helper as the existing
+    // *Change5d fields), gbpUsdChange1d and usdBasketChange1d (1-day companions to the
+    // existing 5d versions).
+    //
+    // Tier B -- pure calendar, no fetch at all: dayOfWeek (1=Mon..5=Fri), monthOfYear
+    // (1-12), isMonthEnd (1.0 if the next BUSINESS day rolls into a new calendar month,
+    // else 0.0 -- deliberately business-day-based via AppClock.businessDaysForward, not
+    // calendar month-end, to avoid reintroducing the calendar-vs-business-day train/serve
+    // mismatch this project already found and fixed once -- see changeNDaysAgoFromSeries's
+    // own doc comment in MarketRepository.kt).
+    //
+    // Null follows the usual rule: real value or absent, never a fabricated stand-in.
+    val us2yChange5d: Double? = null,
+    val vixChange5d: Double? = null,
+    val gbpUsdChange1d: Double? = null,
+    val usdBasketChange1d: Double? = null,
+    val dayOfWeek: Double? = null,
+    val monthOfYear: Double? = null,
+    val isMonthEnd: Double? = null,
     // Legacy same-day estimate from the old hand-tuned linear formula. Kept only so old
     // rows don't break; no longer written by refreshData(). Prefer predicted14dRate below.
     @Deprecated("Superseded by predicted14dRate from the gradient-boosted-trees model")

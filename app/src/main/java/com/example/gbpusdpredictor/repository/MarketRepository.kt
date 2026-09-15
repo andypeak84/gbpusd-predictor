@@ -108,6 +108,15 @@ class MarketRepository(
             data.usdBasketChange5d?.let { features["usdBasketChange5d"] = it }
             // Realized GBP/USD volatility, computed on-device from the Frankfurter history.
             data.gbpUsdRealVol10d?.let { features["gbpUsdRealVol10d"] = it }
+            // Zero-new-fetch momentum companions + pure calendar features (see MarketData
+            // v8->v9 note).
+            data.us2yChange5d?.let { features["us2yChange5d"] = it }
+            data.vixChange5d?.let { features["vixChange5d"] = it }
+            data.gbpUsdChange1d?.let { features["gbpUsdChange1d"] = it }
+            data.usdBasketChange1d?.let { features["usdBasketChange1d"] = it }
+            data.dayOfWeek?.let { features["dayOfWeek"] = it }
+            data.monthOfYear?.let { features["monthOfYear"] = it }
+            data.isMonthEnd?.let { features["isMonthEnd"] = it }
             features["daysAhead"] = daysAheadOverride.toDouble()
             return features
         }
@@ -181,6 +190,8 @@ class MarketRepository(
             val gbpHistory = fetchFrankfurterHistory(targetDate, purpose = "gbpUsd / gbpUsdChange5d / rsi14")
             val gbpUsd = gbpHistory[targetDate]
             val gbpUsdChange5d = changeNDaysAgoFromSeries(gbpHistory, targetDate, 5, toleranceDays = 2)
+            // Zero-new-fetch momentum companion -- same gbpHistory already fetched above.
+            val gbpUsdChange1d = changeNDaysAgoFromSeries(gbpHistory, targetDate, 1, toleranceDays = 1)
             val pricesUpToTarget = gbpHistory.filterKeys { it <= targetDate }.toSortedMap().values.toList()
             val rsi14 = run {
                 // Require genuinely enough real points (period + 1) before computing --
@@ -199,9 +210,13 @@ class MarketRepository(
 
             val us2yHistory = fetchFredHistory("DGS2", targetDate, purpose = "us2y")
             val us2y = us2yHistory[targetDate]
+            // Zero-new-fetch momentum companion -- same us2yHistory already fetched above.
+            val us2yChange5d = changeNDaysAgoFromSeries(us2yHistory, targetDate, 5, toleranceDays = 2)
 
             val vixHistory = fetchFredHistory("VIXCLS", targetDate, purpose = "vix")
             val vix = vixHistory[targetDate]
+            // Zero-new-fetch momentum companion -- same vixHistory already fetched above.
+            val vixChange5d = changeNDaysAgoFromSeries(vixHistory, targetDate, 5, toleranceDays = 2)
 
             // Only oilChange5d comes back from this -- see fetchOilHistoryFromGitHub's own
             // comment for why the raw level stays dropped. changeNDaysAgoFromSeries's own
@@ -244,6 +259,21 @@ class MarketRepository(
                 usdBasketHistory[sym]?.let { changeNDaysAgoFromSeries(it, targetDate, 5, toleranceDays = 2) }
             }
             val usdBasketChange5d = if (usdBasketLegChanges.size >= 2) usdBasketLegChanges.average() else null
+            // Zero-new-fetch momentum companion -- same usdBasketHistory already fetched
+            // above, same >=2-leg guard as the 5d version.
+            val usdBasketLegChanges1d = usdBasketSymbols.mapNotNull { sym ->
+                usdBasketHistory[sym]?.let { changeNDaysAgoFromSeries(it, targetDate, 1, toleranceDays = 1) }
+            }
+            val usdBasketChange1d = if (usdBasketLegChanges1d.size >= 2) usdBasketLegChanges1d.average() else null
+
+            // Tier B -- pure calendar, no fetch at all. isMonthEnd deliberately uses the
+            // BUSINESS-day definition (AppClock.businessDaysForward), not calendar
+            // month-end, matching this project's established business-day-only convention
+            // (see changeNDaysAgoFromSeries's own doc comment on why calendar-day stepping
+            // was a real train/serve bug here once already).
+            val dayOfWeek = targetDate.dayOfWeek.value.toDouble()
+            val monthOfYear = targetDate.monthValue.toDouble()
+            val isMonthEnd = if (AppClock.businessDaysForward(targetDate, 1).monthValue != targetDate.monthValue) 1.0 else 0.0
 
             val marketData = MarketData(
                 date = targetDateStr,
@@ -265,7 +295,14 @@ class MarketRepository(
                 gbpEurChange5d = gbpEurChange5d,
                 eurUsdChange5d = eurUsdChange5d,
                 usdBasketChange5d = usdBasketChange5d,
-                gbpUsdRealVol10d = gbpUsdRealVol10d
+                gbpUsdRealVol10d = gbpUsdRealVol10d,
+                us2yChange5d = us2yChange5d,
+                vixChange5d = vixChange5d,
+                gbpUsdChange1d = gbpUsdChange1d,
+                usdBasketChange1d = usdBasketChange1d,
+                dayOfWeek = dayOfWeek,
+                monthOfYear = monthOfYear,
+                isMonthEnd = isMonthEnd
             )
 
             val corePresent = listOf(gbpUsd, us2y, ukRate, vix).count { it != null }

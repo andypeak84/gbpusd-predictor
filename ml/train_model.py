@@ -68,6 +68,14 @@ FEATURE_ORDER = [
     # EVZCLS "FX implied vol" feature was added alongside this and removed: CBOE
     # discontinued EVZCLS in March 2025, so it has no data past then.)
     "gbpUsdRealVol10d",
+    # Zero-new-fetch momentum companions -- pure derivations of us2y/vix/gbpUsd/the USD
+    # basket, all of which build_dataset() already fetches for the features above. Matches
+    # MarketRepository.refreshData()'s v8->v9 additions exactly.
+    "us2yChange5d", "vixChange5d", "gbpUsdChange1d", "usdBasketChange1d",
+    # Pure calendar -- no fetch, no external dependency at all. isMonthEnd uses the
+    # business-day definition (next business day rolls into a new month), matching
+    # AppClock.businessDaysForward on the app side -- see build_dataset()'s own comment.
+    "dayOfWeek", "monthOfYear", "isMonthEnd",
 ]
 # oilPrice (the raw WTI LEVEL) was removed from the model's feature set: same
 # cross-regime leakage as gbpUsd's price level (see below), and the live app hardcodes
@@ -366,6 +374,8 @@ def build_dataset(
     # makes the change value NaN (missing) rather than a value computed against a
     # phantom carried-forward number.
     frame["gbpUsdChange5d"] = frame["gbpUsd"].pct_change(5, fill_method=None)
+    # Zero-new-fetch momentum companion -- same gbpUsd column, 1-day instead of 5.
+    frame["gbpUsdChange1d"] = frame["gbpUsd"].pct_change(1, fill_method=None)
     frame["oilChange5d"] = frame["oilPrice"].pct_change(5, fill_method=None)
     frame["rsi14"] = compute_rsi(frame["gbpUsd"])
     # Realized GBP/USD vol: sample stdev (ddof=1, pandas default) of the last 10 daily
@@ -373,6 +383,9 @@ def build_dataset(
     # same "real data or missing" rule as everything else. Mirrors
     # MarketRepository.realizedVol on the app side.
     frame["gbpUsdRealVol10d"] = frame["gbpUsd"].pct_change(fill_method=None).rolling(10).std()
+    # Zero-new-fetch momentum companions -- us2y/vix are already columns on frame above.
+    frame["us2yChange5d"] = frame["us2y"].pct_change(5, fill_method=None)
+    frame["vixChange5d"] = frame["vix"].pct_change(5, fill_method=None)
 
     # FX-cross momentum -- reindex to the same business-day grid (no ffill, same as
     # everything else) then a 5-day pct_change with fill_method=None. usdBasketChange5d is
@@ -386,6 +399,25 @@ def build_dataset(
     frame["usdBasketChange5d"] = _basket_leg_changes.mean(axis=1).where(
         _basket_leg_changes.notna().sum(axis=1) >= 2
     )
+    # Zero-new-fetch momentum companion -- same usd_basket frame, 1-day instead of 5,
+    # same >=2-leg guard. Mirrors MarketRepository's usdBasketChange1d.
+    _basket_leg_changes_1d = pd.DataFrame(
+        {leg: usd_basket[leg].reindex(business_days).pct_change(1, fill_method=None) for leg in USD_BASKET_LEGS}
+    )
+    frame["usdBasketChange1d"] = _basket_leg_changes_1d.mean(axis=1).where(
+        _basket_leg_changes_1d.notna().sum(axis=1) >= 2
+    )
+
+    # Pure calendar -- no fetch, no external dependency. isMonthEnd mirrors
+    # AppClock.businessDaysForward's weekend-only (no bank-holiday awareness) definition
+    # via pandas' BDay offset, matching business_days (a plain bdate_range) exactly --
+    # deliberately NOT calendar month-end, per this project's established business-day
+    # convention (see the changeNDaysAgoFromSeries doc comment on the Kotlin side for the
+    # train/serve bug that motivated always using business days here).
+    frame["dayOfWeek"] = frame.index.dayofweek + 1  # pandas: 0=Mon..6=Sun -> 1=Mon..7=Sun
+    frame["monthOfYear"] = frame.index.month
+    _next_business_day = frame.index + pd.tseries.offsets.BDay(1)
+    frame["isMonthEnd"] = (_next_business_day.month != frame.index.month).astype(float)
 
     model_features = list(FEATURE_ORDER)
 
@@ -809,6 +841,16 @@ def main():
              "directional accuracy -- change one at a time so you can tell which did it."
     )
     parser.add_argument("--l2-regularization", type=float, default=0.0)
+    parser.add_argument(
+        "--run-stress-tests", action="store_true",
+        help="After the normal train/export, also run run_stress_tests() against the "
+             "covid_crash_2020 / mini_budget_crisis_2022 windows, using the SAME "
+             "hyperparameters and feature set as the main run. Builds its own separate, "
+             "longer (2018-onward) dataset purely so those dates are in scope -- this is "
+             "NOT the model that gets exported/shipped; see STRESS_PERIODS's own comment. "
+             "Previously only runnable by hand from a notebook/REPL, which is why the "
+             "numbers in ml/README.md were a one-off rather than something reproducible."
+    )
     args = parser.parse_args()
 
     if args.include_uk2y and not args.uk2y_files:
@@ -845,6 +887,24 @@ def main():
         num_trees=args.num_trees, max_depth=args.max_depth, shrinkage=args.shrinkage,
         min_examples=args.min_examples, l2_regularization=args.l2_regularization,
     )
+
+    if args.run_stress_tests:
+        stress_start = min(args.start, date(2018, 1, 1))
+        print(f"\n--run-stress-tests: building a separate frame from {stress_start} "
+              f"(covers both stress windows; NOT the exported model above)...")
+        try:
+            stress_frame, stress_features = build_dataset(
+                stress_start, args.end, args.fred_api_key, args.uk2y_files, args.include_uk2y,
+                uk2y_levels=not args.no_uk2y_levels,
+            )
+        except RuntimeError as e:
+            print(f"\nERROR building stress-test dataset: {e}", file=sys.stderr)
+            sys.exit(1)
+        hp = dict(
+            num_trees=args.num_trees, max_depth=args.max_depth, shrinkage=args.shrinkage,
+            min_examples=args.min_examples, l2_regularization=args.l2_regularization,
+        )
+        run_stress_tests(stress_frame, stress_features, hp)
 
 
 if __name__ == "__main__":

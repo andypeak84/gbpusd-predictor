@@ -8,3 +8,9 @@
 /captures/
 .externalNativeBuild/
 .cxx/
+
+# train_model.py's own direct output when run with the default --output-dir (ml/) --
+# regenerable byproducts of a training run, not source. The shipped copy lives at
+# app/src/main/assets/market_predictor_trees.json, which IS tracked.
+/ml/market_predictor_trees.json
+/ml/training_data.csv

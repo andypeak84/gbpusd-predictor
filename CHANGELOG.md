@@ -1,7 +1,86 @@
 # Changelog
 
-This project is not under version control, so this file plus the inline comment at
-each change site are the only record of what changed and why.
+This project is now under git version control (`E:\claudes-space\gbp project\newgdp-v62`,
+initial commit 2026-09-15). This file plus the inline comment at each change site remain
+the record of what changed and why.
+
+## v63 — 7 new features + retrain — 2026-09-15
+
+Two kinds of new model input, both zero-new-fetch or zero-fetch entirely, plus the
+retrain that activates them (and `gbpUsdRealVol10d`/`horizon_mae`, both already coded
+but unused until now). Also fixes the training environment itself: `ydf>=0.9` has no
+Windows wheels at all (dropped after 0.8.0) and 0.8.0 tops out at Python 3.12, so an
+isolated Python 3.12 + `ydf==0.8.0` environment was used for this run instead of the
+system's Python 3.14; `ml/requirements.txt`'s `ydf>=0.9` pin still targets Colab/Linux
+where current versions install fine.
+
+### Added — 4 momentum companions (zero new network calls)
+`repository/MarketRepository.kt`, `ml/train_model.py`
+
+Pure derivations of history already fetched every refresh for `us2y`/`vix`/`gbpUsd`/the
+USD basket — reuse the existing `changeNDaysAgoFromSeries` call sites, no new fetch:
+`us2yChange5d`, `vixChange5d` (5-business-day % changes), `gbpUsdChange1d`,
+`usdBasketChange1d` (1-day companions to the existing 5d versions).
+
+### Added — 3 pure-calendar features (no fetch at all)
+Same files. `dayOfWeek` (1=Mon..5=Fri), `monthOfYear` (1-12), `isMonthEnd` (1.0 if the
+next **business** day rolls into a new calendar month — deliberately business-day-based
+via `AppClock.businessDaysForward`/pandas `BDay(1)`, not calendar month-end, matching
+this project's established business-day convention rather than reintroducing the
+calendar-vs-business-day train/serve bug fixed in the v63 review pass above).
+
+### Files touched
+- `data/MarketData.kt` — 7 nullable `Double?` fields; DB `version 8 → 9`.
+- `repository/MarketRepository.kt` — computed in `refreshData()`, added to `featuresFrom()`.
+- `MainActivity.kt` / `HistoryActivity.kt` — 7 lines / 7 columns, existing pattern.
+- `ml/train_model.py` — 7 new columns in `build_dataset()`, appended to `FEATURE_ORDER`;
+  new `--run-stress-tests` flag wires the previously-manual-only `run_stress_tests()`
+  into `main()`, building its own 2018-onward frame so the numbers below are reproducible
+  with one command instead of a one-off notebook run.
+- `ml/train_model_colab.ipynb` — core-logic cell re-synced (byte-identical to the script
+  minus `main()`, per this project's convention).
+
+### Retrained and shipped — real numbers, not estimates
+Config unchanged from the existing shipped default: 3-year window, `num_trees=150
+max_depth=4 shrinkage=0.03 min_examples=50`, `--include-uk2y` with levels included.
+21 features fed in (17 prior + these 7; `oilPrice`'s raw level stays excluded).
+
+- **10,577 rows** (2023-09-18 to 2026-09-11), **8,990 train / 1,587 test** (chronological).
+- **Holdout directional accuracy: 55.4%** — flat vs. the pre-this-change baseline
+  (55.7%), i.e. the 7 new features didn't cost accuracy.
+- **Export self-verification: 1,587/1,587 rows matched `model.predict()` exactly**
+  (median error 0.0, 0 boundary-case outliers).
+- **Feature importances (top 10 of 19 with nonzero SUM_SCORE):** `ukRate` 1.145,
+  `gbpUsdRealVol10d` 0.718, `spread2y` 0.679, `vixChange5d` 0.615, `gbpEurChange5d`
+  0.603, `us2yChange5d` 0.455, `rsi14` 0.333, `spread2yChange5d` 0.297,
+  `usdBasketChange5d` 0.296, `gbpUsdChange5d` 0.272. `monthOfYear` (0.229) also shows
+  real importance; `dayOfWeek` and `isMonthEnd` got zero splits this run (not an error —
+  the tree ensemble just didn't find them useful this time; they stay in the feature set
+  for future retrains to reconsider). No single feature dominates the way `gbpUsd`'s or
+  `spread2y`'s raw levels once did (the project's established leakage smell) — healthy
+  shape, consistent with accuracy holding steady rather than dropping.
+- **`horizon_mae` now populated** — the ± uncertainty band goes live on this model
+  (previously-shipped model had no `horizon_mae` block at all).
+
+### Stress test — first run on the CURRENT pipeline, via the new `--run-stress-tests` flag
+Separate model, same hyperparameters, trained on a 2018-onward frame purely so both
+events are in scope (per `STRESS_PERIODS`'s own design — NOT the model shipped above):
+
+- **`covid_crash_2020`: 46.3%** directional accuracy (7,448 train rows, 868 test rows,
+  train_end 2020-02-01, test 2020-02-01..2020-04-30) — still below chance, essentially
+  unchanged from the stale pre-fix figure (45.6%). Read as an honest, current limitation,
+  not a historical footnote: this model style still doesn't call the covid crash better
+  than a coin flip.
+- **`mini_budget_crisis_2022`: 52.7%** directional accuracy (16,744 train rows, 910 test
+  rows, train_end 2022-09-01, test 2022-09-01..2022-11-30) — a real improvement over the
+  stale pre-fix figure (36.4%, well below chance), now just above chance. Likely reflects
+  the missing-value-leak fix and/or the FX-cross features added since that stale number
+  was recorded, not this round's 7 features specifically (no ablation run to isolate
+  which change gets the credit — worth doing if this matters to you).
+
+Both figures pool all 14 horizons into one number, so neither distinguishes "bad at
+1-day, fine by day 10" from "uniformly bad" — per-horizon breakdown would need further
+work, same caveat `ml/README.md` already noted.
 
 ## Pending v63 — realised-vol feature — 2026-09-06
 
