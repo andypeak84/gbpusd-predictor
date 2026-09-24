@@ -4,6 +4,216 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v65 — fix oversized/miscalibrated forecasts + EIA oil fallback — 2026-09-24
+
+### Fixed -- forecasts were 3-7x too large at short horizons
+Live results made this obvious: predicted -0.58% vs actual -0.20%, -0.60% vs -0.08%,
+-0.40% vs -0.10% -- direction right, size badly wrong. Verified structural (not a
+small-sample fluke) by replaying the shipped model over the holdout: the model output
+roughly the SAME size move (~0.3%) at every horizon from 1 to 14 days, while real moves
+grow ~3x over that range. Calibration slope (actual regressed on predicted, 1.0 =
+perfect): **0.21 at 1 day, 1.77 at 14 days** -- both far from 1.0.
+
+Cause: one pooled model trained on all 14 horizons at once, with an un-scaled target.
+Squared-error loss weights a 14-day row (de-meaned sd ~1.5%) about 11x more than a
+1-day row (~0.44%), so the ensemble ends up fit mostly to long-horizon magnitudes and
+reuses that same size move at short horizons. The app stores/scores/notifies on the
+**1-day** horizon specifically, so this mattered most exactly where it was worst.
+
+`ml/train_model.py` -- `train_and_export()` and `evaluate_stress_period()`:
+- Per-horizon standardisation, train-split only (same no-leakage discipline as the
+  existing `horizon_baseline` de-meaning): divide the de-meaned label by
+  `train_df.groupby("daysAhead")[label].std()` before training. Trees/bias stay on
+  this z-scale in the export; direction is unaffected (sign invariant to a positive
+  rescale).
+- `horizon_mae` recomputed in raw units (the z-scale error times that row's
+  `horizon_sd`) so the app's ± band still shows a real percentage.
+- New export field `"horizon_sd"` (string-keyed by daysAhead, same shape as
+  `horizon_baseline`/`horizon_mae`).
+- New **calibration table** printed every run (n, sd(pred), sd(actual), corr, slope,
+  dir_acc, advice-fire-rate per horizon) -- reproduces the analysis that caught this in
+  one command, so a future regression is caught at retrain time, not from live results.
+
+`app/.../ml/TreeModelPredictor.kt`:
+- Parses optional `horizon_sd` (absent/missing-key -> 1.0, a no-op, so older model
+  files behave exactly as before).
+- `predictChangePct`: `baseline + sd * (bias + sum(trees))` (was `bias + baseline +
+  sum(trees)`).
+- New `adviceCutoffPctFor(daysAhead)` = `ADVICE_CUTOFF_SD_FRACTION * horizonSd[h]`,
+  replacing three separate hard-coded `0.0015` (a fixed 0.15%) "Wait / Convert now /
+  broadly stable" cutoffs in `MainActivity.kt`, `MarketDataWorker.kt`, and
+  `PredictorWidgetProvider.kt` -- previously the SAME fixed cutoff applied regardless
+  of horizon, which fired on ~73% of 1-day forecasts once predictions were inflated.
+  Falls back to the legacy fixed 0.0015 when a model has no `horizon_sd` block.
+- `ADVICE_CUTOFF_SD_FRACTION` tuned empirically, not guessed: 0.15 measured a 63-66%
+  fire rate on the real holdout (still too eager -- predictions' own sd is much
+  smaller than a horizon's actual sd, since the model correctly stays humble when the
+  real signal is weak). **0.35 measured 34-36% fire rate across every horizon** on the
+  same holdout -- shipped value, so "broadly stable" is the common case.
+
+### Retrained and verified -- real numbers
+Same shipped hyperparameters (3-year window, 150/4/0.03/50, `--include-uk2y` with
+levels), 21 features, isolated Python 3.12 + `ydf==0.8.0` environment (unchanged setup
+from the prior two retrains this project).
+
+- **10,605 rows** (2023-09-25 to 2026-09-22), 9,014 train / 1,591 test.
+- **Calibration, before -> after** (raw %, holdout): slope 1d 0.21 -> **0.47**, 14d 1.77
+  -> **1.05**. sd(pred) now actually grows with horizon (0.126% at 1d up to 0.415% at
+  14d) instead of sitting flat (~0.26-0.30% everywhere before) -- matches the shape of
+  sd(actual) (0.375% -> 1.050%), just correctly smaller given the real correlation.
+- **Holdout directional accuracy: 59.0%** (previous: 55.6%) -- an improvement, though
+  with a ~1,591-row holdout part of this is likely ordinary variation rather than a
+  clean signal gain; not over-claiming causation.
+- **Export self-verification: 1,591/1,591 rows matched** (median error 0.00000002).
+- **Stress tests** (separate 2018-onward frame, same hyperparameters):
+  `covid_crash_2020` 46.3% (previous 44.5%, within noise), `mini_budget_crisis_2022`
+  59.2% (previous 54.3% -- another improvement, same "don't over-claim from a noisy
+  holdout" caveat as above).
+- Feature importances unchanged in shape/ranking (`ukRate` top, `gbpUsdRealVol10d`
+  2nd, no single feature running away with importance) -- only the absolute SUM_SCORE
+  numbers look different now (thousands, not 0-1), an artefact of the label's variance
+  changing from ~0.0001 (raw %) to ~1 (z-score), not a real shift in what matters.
+
+Model copied to `app/src/main/assets/market_predictor_trees.json`.
+
+**Note for reading the Accuracy screen after this update**: rows written by the OLD
+model keep their old (oversized) `predicted14dChangePct` forever -- nothing retroactively
+recalculates stored predictions. Only NEW rows, from the next 21:00 UTC refresh onward,
+reflect this fix. Expect the Accuracy screen's predicted-vs-actual size ratio to look
+mixed for a while as old rows roll off.
+
+### Fixed -- versionCode/versionName were never bumped for the prior oilChange5d fix
+`app/build.gradle`: `versionCode`/`versionName` jump **63 -> 65** (skipping 64
+deliberately) because the previous oilChange5d anchor-tolerance fix shipped without
+this bump at all -- the phone kept showing "v63" days after that fix was genuinely
+live and working, causing real confusion mid-debugging-session (caught from a live
+screenshot of the phone). Every future change needs to bump this, no exceptions.
+
+### Added -- EIA fallback for oil (separate repo: `andypeak84/Oilfetcher`)
+FRED's `DCOILWTICO` has stalled twice in two weeks now (most recently 6+ days). EIA's
+`RWTC` is the original series FRED mirrors, confirmed live to already be less laggy
+during the second stall (EIA had through 2026-09-22 while FRED was still stuck at
+2026-09-15 at the time of checking).
+
+`Oilfetcher/scripts/fetch_oil_price_fred.py`:
+- Tries FRED first, unchanged. If FRED's newest observation is more than
+  `ANCHOR_TOLERANCE_BUSINESS_DAYS` (1, kept in sync with `MarketRepository.kt`'s own
+  `anchorToleranceDays` for `oilChange5d`) business days stale, also fetches EIA's
+  `RWTC` and adds any date FRED doesn't have -- FRED entries are never overwritten,
+  so a normal day behaves identically to before.
+- Optional `EIA_API_KEY` repo secret (added); if unset, the fallback is silently
+  skipped and behavior is unchanged from before this update.
+- `data/oil-price.json`'s shape is untouched -- no Android-side changes needed at all,
+  `OilPriceService`/`MarketRepository` are agnostic to which upstream produced a row.
+- `.github/workflows/fetch-oil-price.yml`: passes `EIA_API_KEY` through alongside the
+  existing `FRED_API_KEY`.
+- Verified live with a manual `workflow_dispatch` run: correctly detected FRED as 2
+  business days stale, queried EIA, found EIA already had the same dates FRED did
+  (added 0 duplicates), committed cleanly.
+
+## v64 — fix oilChange5d going null + retrain — 2026-09-16
+
+`oilChange5d` had been intermittently null for ~4 months. Root-caused (not guessed) two
+compounding things, both now fixed:
+
+1. **The real bug**: `changeNDaysAgoFromSeries()` required an EXACT, zero-tolerance
+   match on the anchor date (`targetDate`) -- `seriesByDate[latestDate] ?: return null`.
+   `toleranceDays` only ever applied to the reference point (5 business days earlier),
+   never to the anchor -- contrary to a comment on `TARGET_LAG_BUSINESS_DAYS` claiming
+   "that fetch's own tolerance absorbs its lag independently." That claim was never
+   actually true in the code until this change.
+2. **A live, confirmed FRED/EIA outage**: at the time of this fix, FRED's own metadata
+   for `DCOILWTICO` reported `last_updated: 2026-09-10`, `observation_end: 2026-09-09` --
+   no new observation in 6+ days. `Oilfetcher`'s Action was running correctly and
+   committing daily throughout (confirmed via its commit history); it simply had nothing
+   new to fetch. Nothing in this codebase can make FRED publish -- this is upstream and
+   outside anyone's control here.
+
+**A large tolerance bump (5-7 business days) was considered and rejected.** Oil's real
+2026 publish history (172 observations, Jan-Sep) is genuinely daily, with every gap
+`>3` calendar days being exactly 4 -- a single US federal holiday Monday (~7 times in
+8.5 months) -- right up until the current, unprecedented outage. A big blanket tolerance
+would do nothing useful on normal days (1-day lag already fits inside the existing
+2-day window) and would be actively harmful whenever it DID kick in: pairing a week-old
+oil reading with every other field's genuinely-current one under one shared date label
+is exactly the misaligned-timestamp leak this project already eliminated elsewhere (the
+ffill bug, the all-null-row bug).
+
+### Fixed -- small (1 BUSINESS day, not calendar day), oil-only anchor tolerance
+`repository/MarketRepository.kt`
+
+- `changeNDaysAgoFromSeries()` gains `anchorToleranceDays: Int = 0` (default preserves
+  exact-match behavior for every other caller -- gbpUsd/us2y/vix/spread2y/the FX crosses
+  keep zero-tolerance anchoring; their real-world lag genuinely is that tight and the
+  invariant matters). When `> 0`, finds the nearest real reading `<=` the target date,
+  measured in BUSINESS days via `AppClock.businessDaysBetween` -- deliberately business
+  days, not calendar days: a single Monday holiday makes the preceding Friday 3 calendar
+  days back but only 1 business day back, and `anchorToleranceDays=1` is sized to that
+  exact, confirmed real-world case, not an arbitrary number. Never picks a reading AFTER
+  the target date (no look-ahead).
+- Only `oilChange5d`'s call site passes `anchorToleranceDays = 1`.
+- `fetchOilHistoryFromGitHub()`'s `NO_MATCH` outcome now folds in how stale the source
+  itself is (`"NO_MATCH (source N business days stale)"`), reusing
+  `AppClock.businessDaysBetween` -- a future occurrence reads as "the source is stale"
+  at a glance on the Bootstrap Log screen instead of a bare, ambiguous `NO_MATCH`.
+- Corrected the `TARGET_LAG_BUSINESS_DAYS` comment's previously-false claim about oil's
+  tolerance absorbing its own lag -- now actually true, in a small, deliberate way.
+
+### Fixed -- train/serve consistency for oilChange5d
+`ml/train_model.py`
+
+- Replaced `frame["oilPrice"].pct_change(5, fill_method=None)` (strict positional on
+  the business-day-reindexed frame -- actually STRICTER than serving was even before
+  this fix, its own small pre-existing inconsistency) with `compute_oil_change_5d()`, an
+  explicit per-row port of `changeNDaysAgoFromSeries`'s oil-specific call
+  (daysAgo=5, toleranceDays=2, anchorToleranceDays=1), operating on oil's own native
+  (sparse) dates. Written as a direct, checkable mirror rather than a cleverer
+  vectorized `merge_asof` pipeline, verified against synthetic data covering all four
+  cases (normal day, single-holiday fallback, genuine multi-day outage staying null,
+  no look-ahead) before wiring into the real pipeline.
+- `ml/train_model_colab.ipynb` core cell re-synced, per convention.
+
+### Fixed -- separate repo: `andypeak84/Oilfetcher`
+`.github/workflows/fetch-oil-price.yml`
+
+- Cron moved from `30 20 * * *` (20:30 UTC, intended 30 min ahead of the app's
+  21:00 UTC refresh) to `0 18 * * *` (18:00 UTC). The Action's own run-time history
+  showed it consistently firing 1.5-3 hours late (22:13-23:19 UTC) -- a documented
+  GitHub `schedule`-trigger limitation, not a bug in the workflow -- often AFTER the
+  app's refresh, defeating the original margin. Not the cause of the current episode
+  (Oilfetcher already matched FRED exactly throughout), but a real secondary risk on a
+  day FRED does publish on time.
+
+### Retrained and verified -- real numbers
+Same shipped config as before (3-year window, `num_trees=150 max_depth=4 shrinkage=0.03
+min_examples=50`, `--include-uk2y` with levels), 21 features, using the isolated Python
+3.12 + `ydf==0.8.0` environment set up for the previous retrain (`ydf>=0.9` has no
+Windows wheels at all; 0.8.0 is the last one, and tops out at Python 3.12).
+
+- **oilChange5d's null rate dropped from 8.25% to 0.78%** (742 -> 70 of ~9,000 training
+  rows) -- now matching `gbpUsdChange5d`'s and `vixChange5d`'s baseline null rate almost
+  exactly, i.e. only the structural "not enough history yet" nulls every `*Change5d`
+  feature has, not a source-specific problem anymore.
+- Spot-checked `training_data.csv` directly against the live outage: Sep 9->10 (a
+  normal 1-business-day gap) now correctly reuses Sep 9's real reading; Sep 11 onward
+  (2+ business days into the confirmed FRED outage) correctly stays null. Exactly the
+  intended behavior in both directions.
+- **Holdout directional accuracy: 55.6%** (previous: 55.4%) -- flat, as expected for a
+  reliability fix, not a signal change.
+- **oilChange5d importance: 0.209** (previous: 0.212) -- essentially unchanged; fixing
+  its reliability didn't cause it to dominate or misbehave.
+- **Export self-verification: 1,589/1,589 rows matched** (median error 0.0, max error
+  0.00006 -- ordinary float-rounding boundary noise).
+- **Stress tests** (separate 2018-onward frame, same hyperparameters): `covid_crash_2020`
+  44.5% (previous 46.3%, within noise of a different row composition), `mini_budget_
+  crisis_2022` 54.3% (previous 52.7%). Both consistent with prior findings -- covid
+  remains a genuine weak spot, mini-budget remains modestly above chance.
+
+Model copied to `app/src/main/assets/market_predictor_trees.json`. As always: `gradle
+clean assembleDebug` and reinstall needed before this reaches the phone -- a stale
+`app/build` will silently keep the old model/version (see the v63 build-staleness
+lesson).
+
 ## v63 — 7 new features + retrain — 2026-09-15
 
 Two kinds of new model input, both zero-new-fetch or zero-fetch entirely, plus the

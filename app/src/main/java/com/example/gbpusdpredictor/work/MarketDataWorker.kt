@@ -95,7 +95,7 @@ class MarketDataWorker(context: Context, params: WorkerParameters) : CoroutineWo
         return when (result) {
             RefreshResult.SUCCESS -> {
                 notifyWidgets()
-                runCatching { postForecastNotification() }
+                runCatching { postForecastNotification(treeModel) }
                     .onFailure { Log.w("MarketDataWorker", "postForecastNotification failed (non-fatal)", it) }
                 MarketDataScheduler.scheduleNext(applicationContext)
                 Result.success()
@@ -140,11 +140,11 @@ class MarketDataWorker(context: Context, params: WorkerParameters) : CoroutineWo
      * in runCatching rather than gating on a permission check here. */
     @SuppressLint("MissingPermission") // areNotificationsEnabled() below is the guard; on
     // API 33+ a denied POST_NOTIFICATIONS just makes notify() silently no-op regardless.
-    private suspend fun postForecastNotification() {
+    private suspend fun postForecastNotification(treeModel: TreeModelPredictor) {
         if (!NotificationManagerCompat.from(applicationContext).areNotificationsEnabled()) return
         val latest: MarketData = AppDatabase.getInstance(applicationContext).marketDao().getLatest() ?: return
 
-        val body = buildNotificationBody(latest)
+        val body = buildNotificationBody(latest, treeModel)
 
         val openApp = PendingIntent.getActivity(
             applicationContext,
@@ -166,7 +166,7 @@ class MarketDataWorker(context: Context, params: WorkerParameters) : CoroutineWo
         NotificationManagerCompat.from(applicationContext).notify(NOTIFICATION_ID, notification)
     }
 
-    private fun buildNotificationBody(latest: MarketData): String {
+    private fun buildNotificationBody(latest: MarketData, treeModel: TreeModelPredictor): String {
         val rate = latest.gbpUsd
         val predictedRate = latest.predicted14dRate
         val changePct = latest.predicted14dChangePct
@@ -176,9 +176,13 @@ class MarketDataWorker(context: Context, params: WorkerParameters) : CoroutineWo
         val target = LocalDate.parse(latest.date).plusDays(MarketRepository.DEFAULT_HORIZON_DAYS.toLong())
         val now = "%.4f".format(Locale.UK, rate)
         val pred = "%.4f".format(Locale.UK, predictedRate)
+        // Cutoff scales with this horizon's own typical move size -- see
+        // TreeModelPredictor.adviceCutoffPctFor's own comment. Falls back to the legacy
+        // fixed 0.15% on its own if the model file has no horizon_sd block.
+        val cutoff = treeModel.adviceCutoffPctFor(MarketRepository.DEFAULT_HORIZON_DAYS)
         return when {
-            changePct > 0.0015 -> "Wait: GBP/USD ($now) may rise to ~$pred by $target."
-            changePct < -0.0015 -> "Convert now: GBP/USD ($now) may fall to ~$pred by $target."
+            changePct > cutoff -> "Wait: GBP/USD ($now) may rise to ~$pred by $target."
+            changePct < -cutoff -> "Convert now: GBP/USD ($now) may fall to ~$pred by $target."
             else -> "GBP/USD ($now) looks broadly stable through $target."
         }
     }

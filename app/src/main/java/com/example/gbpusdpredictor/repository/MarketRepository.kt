@@ -54,8 +54,14 @@ class MarketRepository(
         // Was 3 (set by FRED's old DCOILWTICO oil series, observed 2 business days behind
         // a 1-day-back target = 3 total). Oil's raw LEVEL is out of this calculation --
         // it's dropped entirely (only oilChange5d is populated now, via a GitHub Action --
-        // see fetchOilHistoryFromGitHub) and that fetch's own tolerance absorbs its lag
-        // independently, so it doesn't feed back into this shared constant. This stayed
+        // see fetchOilHistoryFromGitHub) and that fetch's own SMALL anchor tolerance
+        // (changeNDaysAgoFromSeries's anchorToleranceDays=1, oil's call site only) absorbs
+        // its ordinary single-day lag independently, so it doesn't feed back into this
+        // shared constant. That tolerance is deliberately narrow -- it covers the routine
+        // one-business-day miss (e.g. a holiday) confirmed against oil's real 2026
+        // publish history, not a genuine multi-day source outage, which should (and does)
+        // still come back null rather than pairing a stale oil reading with every OTHER
+        // field's genuinely-current one under the same date label. This stayed
         // at 2, set by the next-slowest of the fields that DO need an exact match:
         // ukRate/vix/us2y each sat 1 business day behind a 1-day-back target = 2 total,
         // the day this was measured.
@@ -223,7 +229,12 @@ class MarketRepository(
             // 2-day tolerance absorbs whatever lag the GitHub Action's own last successful
             // run has, independent of TARGET_LAG_BUSINESS_DAYS.
             val oilHistoryForChangeOnly = fetchOilHistoryFromGitHub(targetDate)
-            val oilChange5d = changeNDaysAgoFromSeries(oilHistoryForChangeOnly, targetDate, 5, toleranceDays = 2)
+            // anchorToleranceDays=1: oil is the one source that occasionally misses
+            // targetDate by exactly one business day (e.g. a holiday) even when otherwise
+            // healthy -- see changeNDaysAgoFromSeries's own doc comment for why this is
+            // deliberately small and oil-specific, not a general fix for a genuine
+            // multi-day source outage (which should, correctly, still come back null).
+            val oilChange5d = changeNDaysAgoFromSeries(oilHistoryForChangeOnly, targetDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
 
             val giltHistory = fetchGiltYieldHistory(targetDate)
             // fetchUkRateForDate (direct BoE, Bank Rate not gilt yield -- see its own
@@ -467,7 +478,19 @@ class MarketRepository(
         val outcome = when {
             historyByDate.isEmpty() -> "EMPTY"
             historyByDate.containsKey(targetDate) -> "OK"
-            else -> "NO_MATCH"
+            else -> {
+                // Folds how stale the SOURCE itself is into the logged outcome, so a real
+                // upstream outage (e.g. FRED not publishing DCOILWTICO for days) reads as
+                // "source N business days stale" at a glance on the Bootstrap Log screen,
+                // rather than a bare NO_MATCH indistinguishable from a plain fetch miss.
+                val newestDate = historyByDate.keys.maxOrNull()
+                val staleness = newestDate?.let { AppClock.businessDaysBetween(it, targetDate) }
+                if (staleness != null) {
+                    "NO_MATCH (source $staleness business day${if (staleness == 1) "" else "s"} stale)"
+                } else {
+                    "NO_MATCH"
+                }
+            }
         }
         logBootstrap(source, purpose, null, null, targetDate, historyByDate, outcome)
         return historyByDate
@@ -672,22 +695,49 @@ class MarketRepository(
      * target itself lands on (UK/US bank holidays differ from each other and from what a
      * given source actually publishes for).
      *
-     * The reference search excludes `latestDate` itself: with a small daysAgo/tolerance
+     * The reference search excludes the anchor date itself: with a small daysAgo/tolerance
      * (e.g. spread2yChange1d, daysAgo=1 tolerance=1) and a gap at the real reference date
      * -- e.g. a holiday the business-day step-back lands on -- the nearest remaining point
-     * would otherwise BE latestDate, distance `daysAgo` <= tolerance, yielding a spurious
-     * exact 0.0 change that's indistinguishable from a genuine no-change reading. Better to
-     * return null (feature absent) than a fabricated zero. */
+     * would otherwise BE the anchor date, distance `daysAgo` <= tolerance, yielding a
+     * spurious exact 0.0 change that's indistinguishable from a genuine no-change reading.
+     * Better to return null (feature absent) than a fabricated zero.
+     *
+     * `anchorToleranceDays` (default 0 -- exact match, same as before this parameter
+     * existed): how many BUSINESS days (via AppClock.businessDaysBetween, not raw
+     * calendar days) EARLIER than `latestDate` the anchor reading itself is allowed
+     * to be, when `latestDate` has no real reading of its own. Business days, not
+     * calendar days, matters here: a single Monday holiday makes the preceding
+     * Friday's reading 3 CALENDAR days back but only 1 BUSINESS day back -- using
+     * calendar-day distance would need tolerance>=3 to cover the exact same case
+     * "1 business day" is meant to describe. Zero for every
+     * caller except oilChange5d -- gbpUsd/us2y/vix/spread2y/the FX crosses all genuinely
+     * publish close enough to `latestDate` that requiring an exact match is correct and
+     * meaningful (a real, same-day reading, never a stale one wearing a different day's
+     * label). Oil is the one source observed to occasionally miss `latestDate` by exactly
+     * one business day (a holiday) even when it's otherwise perfectly healthy -- see
+     * OilPriceService.kt's doc comment. NEVER allowed to pick a reading AFTER `latestDate`
+     * (that would be using information not actually available as of `latestDate` -- a
+     * look-ahead leak, not a lag tolerance). A large anchorToleranceDays would reintroduce
+     * exactly the misaligned-timestamp problem this whole file was rewritten to eliminate
+     * (see MarketData.kt's v5->v6 note) -- pairing a stale anchor with every OTHER field's
+     * genuinely-current reading under one shared `latestDate` label. Keep this small and
+     * source-specific, not a general escape hatch. */
     private fun changeNDaysAgoFromSeries(
         seriesByDate: Map<LocalDate, Double>,
         latestDate: LocalDate,
         daysAgo: Int,
-        toleranceDays: Int
+        toleranceDays: Int,
+        anchorToleranceDays: Int = 0
     ): Double? {
-        val latestValue = seriesByDate[latestDate] ?: return null
-        val targetDate = AppClock.businessDaysBack(latestDate, daysAgo)
+        val (anchorDate, latestValue) = seriesByDate.entries
+            .filter { it.key <= latestDate }
+            .map { it to AppClock.businessDaysBetween(it.key, latestDate) }
+            .minByOrNull { it.second }
+            ?.takeIf { it.second <= anchorToleranceDays }
+            ?.let { it.first.key to it.first.value } ?: return null
+        val targetDate = AppClock.businessDaysBack(anchorDate, daysAgo)
         val reference = seriesByDate.entries
-            .filter { it.key < latestDate }
+            .filter { it.key < anchorDate }
             .map { it to Math.abs(it.key.toEpochDay() - targetDate.toEpochDay()) }
             .minByOrNull { it.second }
             ?.takeIf { it.second <= toleranceDays }

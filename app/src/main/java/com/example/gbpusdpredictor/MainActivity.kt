@@ -476,9 +476,13 @@ class MainActivity : AppCompatActivity() {
             val (days, changePct, predictedRate) = predictions.first()
             val targetDate = targetDateFor(days)
             predictionLine.text = "$days-day forecast ($targetDate): ${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)"
+            // Cutoff scales with this horizon's own typical move size (see
+            // TreeModelPredictor.adviceCutoffPctFor's own comment) -- falls back to the
+            // original fixed 0.15% for a model with no horizon_sd block.
+            val cutoff = model?.adviceCutoffPctFor(days) ?: 0.0015
             recommendationLine.text = when {
-                changePct > 0.0015 -> "Rate may rise — consider waiting before converting GBP to USD."
-                changePct < -0.0015 -> "Rate may fall — converting sooner may get you more USD per GBP."
+                changePct > cutoff -> "Rate may rise — consider waiting before converting GBP to USD."
+                changePct < -cutoff -> "Rate may fall — converting sooner may get you more USD per GBP."
                 else -> "Rate looks broadly stable over this horizon."
             }
             gbpAmount?.let { amount ->

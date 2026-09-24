@@ -106,6 +106,13 @@ USD_BASKET_LEGS = ["EUR", "JPY", "CAD", "CHF"]
 HORIZONS = list(range(1, 15))
 LABEL_COL = "target_change_pct"
 RSI_PERIOD = 14
+# Matches TreeModelPredictor.kt's ADVICE_CUTOFF_SD_FRACTION exactly -- kept here only
+# to preview, in train_and_export()'s calibration table, how often the app's
+# "Wait/Convert now" advice would actually fire on the model just trained. Not itself
+# read by the app; the real constant lives Kotlin-side. 0.15 measured 63-66% fire rate
+# on a real holdout (too eager, see TreeModelPredictor.kt's own comment); 0.35 measured
+# 34-36% across every horizon on the same holdout -- that's the shipped value.
+ADVICE_CUTOFF_SD_FRACTION = 0.35
 
 
 def parse_glc_nominal_short_end(xlsx_path: Path) -> pd.Series:
@@ -304,6 +311,80 @@ def compute_rsi(closes: pd.Series, period: int = RSI_PERIOD) -> pd.Series:
     return rsi
 
 
+def compute_oil_change_5d(business_days: pd.DatetimeIndex, oil: pd.Series) -> pd.Series:
+    """Mirrors MarketRepository.changeNDaysAgoFromSeries's oil call site exactly
+    (daysAgo=5, toleranceDays=2, anchorToleranceDays=1), operating on oil's OWN
+    native (sparse, non-reindexed) dates -- a plain `oilPrice.pct_change(5)` on the
+    business-day-reindexed frame is actually STRICTER than the live app (zero
+    tolerance on both ends), a small train/serve inconsistency on top of the live
+    app's now-fixed anchor bug. See changeNDaysAgoFromSeries's own doc comment
+    (Kotlin side) for why anchorToleranceDays is deliberately small (1 calendar
+    day, covers a routine single-holiday miss confirmed against oil's real 2026
+    publish history) rather than a general fix for a genuine multi-day source
+    outage, which should -- and here still does -- come back NaN.
+
+    Written as an explicit per-row port of the Kotlin algorithm (not a vectorized
+    merge_asof pipeline) so it stays a direct, checkable mirror rather than a
+    cleverer but harder-to-verify pandas trick -- this isn't a hot path, it runs
+    once per training invocation, not per live refresh.
+    """
+    oil_real = oil.dropna().sort_index()
+    oil_dates = oil_real.index.to_numpy()
+    oil_values = oil_real.to_numpy()
+
+    def business_days_between(a, b) -> int:
+        """Mirrors AppClock.businessDaysBetween exactly (Mon-Fri count strictly
+        after the earlier date through the later date) -- business days, not raw
+        calendar days: a single Monday holiday makes the preceding Friday 3
+        CALENDAR days back but only 1 BUSINESS day back, and anchorToleranceDays
+        is defined in business-day terms specifically to cover that case with a
+        small number rather than needing >=3 calendar days of slack."""
+        start, end = (a, b) if a <= b else (b, a)
+        if start == end:
+            return 0
+        return len(pd.bdate_range(pd.Timestamp(start) + pd.Timedelta(days=1), pd.Timestamp(end)))
+
+    def nearest_at_or_before(target, max_days: int):
+        idx = np.searchsorted(oil_dates, target, side="right") - 1
+        if idx < 0:
+            return None
+        gap = business_days_between(oil_dates[idx], target)
+        return (oil_dates[idx], oil_values[idx]) if gap <= max_days else None
+
+    def nearest_within(target, before, max_days: int):
+        # Candidates strictly before `before` (the anchor date) -- mirrors the
+        # Kotlin reference lookup's `it.key < anchorDate` filter. A small local
+        # window around the insertion point is enough since oil_dates is sorted
+        # and real gaps beyond a long weekend are rare.
+        idx = np.searchsorted(oil_dates, before, side="left")
+        best, best_gap = None, None
+        for i in range(max(0, idx - (max_days + 10)), idx):
+            gap = abs((oil_dates[i] - target) / np.timedelta64(1, "D"))
+            if gap <= max_days and (best_gap is None or gap < best_gap):
+                best, best_gap = (oil_dates[i], oil_values[i]), gap
+        return best
+
+    results = []
+    for day in business_days:
+        day64 = np.datetime64(day)
+        anchor = nearest_at_or_before(day64, max_days=1)
+        if anchor is None:
+            results.append(np.nan)
+            continue
+        anchor_date, anchor_value = anchor
+        # 5 BUSINESS days back from the anchor's own real date, not the row's
+        # nominal date -- matches AppClock.businessDaysBack(anchorDate, daysAgo).
+        ref_target = np.datetime64(pd.Timestamp(anchor_date) - pd.tseries.offsets.BDay(5))
+        reference = nearest_within(ref_target, anchor_date, max_days=2)
+        if reference is None:
+            results.append(np.nan)
+            continue
+        _, ref_value = reference
+        results.append(np.nan if ref_value == 0.0 else (anchor_value - ref_value) / ref_value)
+
+    return pd.Series(results, index=business_days)
+
+
 def build_dataset(
     start: date,
     end: date,
@@ -376,7 +457,7 @@ def build_dataset(
     frame["gbpUsdChange5d"] = frame["gbpUsd"].pct_change(5, fill_method=None)
     # Zero-new-fetch momentum companion -- same gbpUsd column, 1-day instead of 5.
     frame["gbpUsdChange1d"] = frame["gbpUsd"].pct_change(1, fill_method=None)
-    frame["oilChange5d"] = frame["oilPrice"].pct_change(5, fill_method=None)
+    frame["oilChange5d"] = compute_oil_change_5d(business_days, oil)
     frame["rsi14"] = compute_rsi(frame["gbpUsd"])
     # Realized GBP/USD vol: sample stdev (ddof=1, pandas default) of the last 10 daily
     # returns. rolling(10).std() needs 10 non-NaN returns in the window (a gap -> NaN),
@@ -582,6 +663,25 @@ def train_and_export(
     train_df[label] = train_df[label] - train_df["daysAhead"].map(horizon_baseline)
     test_df[label] = test_df[label] - test_df["daysAhead"].map(horizon_baseline)
 
+    # Per-horizon standardisation (train split only -- same no-test-leakage discipline
+    # as horizon_baseline above). WITHOUT this, one pooled model trained on all 14
+    # horizons at once is dominated by the longest ones: squared-error loss weights a
+    # 14-day row (de-meaned sd ~1.5%) about 11x more than a 1-day row (~0.44%), so the
+    # ensemble ends up fit mostly to long-horizon magnitudes and simply reuses that same
+    # size move at every horizon. Confirmed on a real holdout before this fix: predicted
+    # moves were essentially the same size (~0.3%) at 1 day and 14 days, while actual
+    # moves grew ~3x over that range -- a calibration slope (actual regressed on
+    # predicted) of 0.21 at 1 day and 1.77 at 14 days, both far from the 1.0 a
+    # well-calibrated model would have. Dividing by each horizon's own training-split sd
+    # before training removes that imbalance. The trees/bias stay on this z-scale in the
+    # export; TreeModelPredictor.kt multiplies back by horizon_sd[daysAhead] at inference
+    # (see its own comment) -- direction is unaffected (sign is invariant to a positive
+    # rescale), and the export self-verification below still compares apples to apples
+    # since it's checking THIS z-scale model.predict() output either way.
+    horizon_sd = train_df.groupby("daysAhead")[label].std().to_dict()
+    train_df[label] = train_df[label] / train_df["daysAhead"].map(horizon_sd)
+    test_df[label] = test_df[label] / test_df["daysAhead"].map(horizon_sd)
+
     learner = ydf.GradientBoostedTreesLearner(
         label=label,
         task=ydf.Task.REGRESSION,
@@ -609,20 +709,49 @@ def train_and_export(
     print(f"Per-horizon baseline (average return in the training set, added back at "
           f"inference): {dict(sorted(horizon_baseline.items()))}")
 
-    # Per-horizon mean absolute error of the % change prediction, on the holdout. Feeds
-    # the app's optional ± uncertainty band (TreeModelPredictor.maePctFor -> a band on the
-    # predicted RATE). The horizon_baseline term cancels in (prediction - actual) -- the
-    # app adds it to the prediction and it's also in the real forward return -- so this is
-    # just |model.predict() - de-meaned label| averaged within each horizon, no baseline
-    # arithmetic needed here.
+    # Per-horizon mean absolute error of the % change prediction, on the holdout, IN RAW
+    # UNITS (not the z-scale preds/actual are on post-standardisation above) -- feeds the
+    # app's optional ± uncertainty band (TreeModelPredictor.maePctFor -> a band on the
+    # predicted RATE), which needs a real percentage, not a z-score. horizon_baseline's
+    # term cancels in (prediction - actual) same as before; the new horizon_sd term does
+    # NOT cancel (it's a multiplicative rescale, not additive), so each row's absolute
+    # z-scale error is scaled back up by that row's own horizon_sd before averaging.
+    test_sd = test_df["daysAhead"].map(horizon_sd)
     horizon_mae = (
-        pd.Series(np.abs(preds - actual), index=test_df.index)
+        pd.Series(np.abs(preds - actual) * test_sd.values, index=test_df.index)
         .groupby(test_df["daysAhead"])
         .mean()
         .to_dict()
     )
     print(f"Per-horizon holdout MAE (% change; feeds the app's uncertainty band): "
           f"{ {int(k): round(float(v), 5) for k, v in sorted(horizon_mae.items())} }")
+
+    # Calibration table -- reproduces, at retrain time, the ad-hoc analysis that first
+    # caught the pre-standardisation miscalibration (see this function's comment above),
+    # so a regression here is caught immediately rather than discovered again from a
+    # user's live results. All in RAW units (predictions/actuals scaled back up by
+    # horizon_sd) since that's what actually reaches the app. `slope` is actual
+    # regressed on predicted -- 1.0 is perfectly calibrated, <1 means predictions are
+    # oversized relative to what they're worth, >1 undersized. `adv%` is the share of
+    # holdout predictions that would cross ADVICE_CUTOFF_SD_FRACTION of that horizon's
+    # own sd -- TreeModelPredictor.kt's adviceCutoffPctFor uses the same fraction, so
+    # this previews how often the app's "Wait/Convert now" advice actually fires.
+    raw_preds_all = preds * test_sd.values
+    raw_actual_all = actual * test_sd.values
+    print("\nCalibration table (raw %, holdout):")
+    print(f"  {'h':>3} {'n':>5} {'sd(pred)':>10} {'sd(actual)':>11} {'corr':>7} {'slope':>7} {'dir_acc':>8} {'adv%':>6}")
+    for h in sorted(test_df["daysAhead"].unique()):
+        mask = (test_df["daysAhead"] == h).values
+        p, a = raw_preds_all[mask], raw_actual_all[mask]
+        if len(p) < 2 or p.std() == 0:
+            continue
+        corr = float(np.corrcoef(p, a)[0, 1])
+        slope = float(np.cov(p, a)[0, 1] / np.var(p, ddof=1))
+        dir_acc = float(np.mean(np.sign(p) == np.sign(a)))
+        cutoff = ADVICE_CUTOFF_SD_FRACTION * horizon_sd[h]
+        adv_share = float(np.mean(np.abs(p) > cutoff))
+        print(f"  {int(h):>3} {len(p):>5} {p.std()*100:>9.3f}% {a.std()*100:>10.3f}% "
+              f"{corr:>+7.3f} {slope:>7.3f} {dir_acc:>7.1%} {adv_share:>5.1%}")
 
     print("\nFeature importances:")
     try:
@@ -644,6 +773,11 @@ def train_and_export(
         # OPTIONAL. Read by TreeModelPredictor.maePctFor(); when present the app shows the
         # forecast as "1.3241 +/- <rate * mae>". Same string-keyed-by-daysAhead shape.
         "horizon_mae": {str(int(k)): float(v) for k, v in horizon_mae.items()},
+        # The per-horizon standardisation divisor from training (see this function's own
+        # comment above) -- TreeModelPredictor.kt multiplies the tree output back by this
+        # at inference. Absent/1.0-per-horizon for models trained before this existed, so
+        # older exports still work (see TreeModelPredictor.kt's own parsing).
+        "horizon_sd": {str(int(k)): float(v) for k, v in horizon_sd.items()},
     }
 
     # --- Self-verification: replay the exported JSON in pure Python and compare against
@@ -754,6 +888,15 @@ def evaluate_stress_period(
     horizon_baseline = train_df.groupby("daysAhead")[label].mean().to_dict()
     train_df[label] = train_df[label] - train_df["daysAhead"].map(horizon_baseline)
     test_df[label] = test_df[label] - test_df["daysAhead"].map(horizon_baseline)
+
+    # Same per-horizon standardisation as train_and_export (see its own comment) -- kept
+    # in sync so a stress-period run uses the identical training recipe as the shipped
+    # model, not just the same de-meaning. directional_accuracy below is unaffected
+    # either way (sign is invariant to a positive rescale); this is purely so the two
+    # functions never silently drift apart on what "the training recipe" means.
+    horizon_sd = train_df.groupby("daysAhead")[label].std().to_dict()
+    train_df[label] = train_df[label] / train_df["daysAhead"].map(horizon_sd)
+    test_df[label] = test_df[label] / test_df["daysAhead"].map(horizon_sd)
 
     learner = ydf.GradientBoostedTreesLearner(label=label, task=ydf.Task.REGRESSION, **hp)
     model = learner.train(train_df[model_features + [label]])

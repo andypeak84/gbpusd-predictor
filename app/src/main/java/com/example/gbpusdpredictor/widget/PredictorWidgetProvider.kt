@@ -9,6 +9,7 @@ import android.widget.RemoteViews
 import com.example.gbpusdpredictor.MainActivity
 import com.example.gbpusdpredictor.R
 import com.example.gbpusdpredictor.data.AppDatabase
+import com.example.gbpusdpredictor.ml.TreeModelPredictor
 import com.example.gbpusdpredictor.repository.MarketRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -58,10 +59,15 @@ class PredictorWidgetProvider : AppWidgetProvider() {
                         views.setTextViewText(R.id.widget_signal, "No forecast yet")
                     } else {
                         val targetDate = LocalDate.parse(latest.date).plusDays(MarketRepository.DEFAULT_HORIZON_DAYS.toLong())
+                        // Off the main thread already (goAsync() + Dispatchers.IO above), so
+                        // constructing this here just for its horizon-scaled cutoff is fine.
+                        // Falls back to the legacy fixed 0.15% on its own if the model file
+                        // has no horizon_sd block -- see adviceCutoffPctFor's own comment.
+                        val cutoff = TreeModelPredictor(context).adviceCutoffPctFor(MarketRepository.DEFAULT_HORIZON_DAYS)
                         val signal = when {
-                            changePct > 0.0015 ->
+                            changePct > cutoff ->
                                 "Wait: rate may rise to ~%.4f by %s".format(Locale.UK, predictedRate, targetDate)
-                            changePct < -0.0015 ->
+                            changePct < -cutoff ->
                                 "Transfer now: rate may fall to ~%.4f by %s".format(Locale.UK, predictedRate, targetDate)
                             else ->
                                 "Stable over the next ${MarketRepository.DEFAULT_HORIZON_DAYS} days"

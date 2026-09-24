@@ -14,3 +14,4 @@
 # app/src/main/assets/market_predictor_trees.json, which IS tracked.
 /ml/market_predictor_trees.json
 /ml/training_data.csv
+/ml/__pycache__/
