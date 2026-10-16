@@ -97,6 +97,10 @@ class MarketRepository(
             data.vix?.let { features["vix"] = it }
             data.gbpUsdChange5d?.let { features["gbpUsdChange5d"] = it }
             data.oilChange5d?.let { features["oilChange5d"] = it }
+            data.brentChange5d?.let { features["brentChange5d"] = it }
+            data.gbpUsdChange10d?.let { features["gbpUsdChange10d"] = it }
+            data.gbpUsdChange20d?.let { features["gbpUsdChange20d"] = it }
+            data.spread2yChange10d?.let { features["spread2yChange10d"] = it }
             data.rsi14?.let { features["rsi14"] = it }
             data.ukRate?.let { features["ukRate"] = it }
             data.spread2y?.let { features["spread2y"] = it }
@@ -198,6 +202,14 @@ class MarketRepository(
             val gbpUsdChange5d = changeNDaysAgoFromSeries(gbpHistory, targetDate, 5, toleranceDays = 2)
             // Zero-new-fetch momentum companion -- same gbpHistory already fetched above.
             val gbpUsdChange1d = changeNDaysAgoFromSeries(gbpHistory, targetDate, 1, toleranceDays = 1)
+            // Longer-trend companions -- same gbpHistory, no new fetch. Added specifically
+            // because the model only ever saw 1d/5d windows and kept calling stabilization
+            // during real, sustained declines (e.g. three live misses Sep 21/28/30, all
+            // mid-decline) -- it had no way to distinguish "still trending" from "noise" at
+            // a longer horizon. HISTORY_LOOKBACK_DAYS=40 comfortably covers a 20-business-day
+            // reference point (~28 calendar days) plus tolerance margin.
+            val gbpUsdChange10d = changeNDaysAgoFromSeries(gbpHistory, targetDate, 10, toleranceDays = 2)
+            val gbpUsdChange20d = changeNDaysAgoFromSeries(gbpHistory, targetDate, 20, toleranceDays = 2)
             val pricesUpToTarget = gbpHistory.filterKeys { it <= targetDate }.toSortedMap().values.toList()
             val rsi14 = run {
                 // Require genuinely enough real points (period + 1) before computing --
@@ -236,6 +248,12 @@ class MarketRepository(
             // multi-day source outage (which should, correctly, still come back null).
             val oilChange5d = changeNDaysAgoFromSeries(oilHistoryForChangeOnly, targetDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
 
+            // Brent -- a second, independent oil benchmark alongside WTI (not a
+            // replacement). See fetchBrentHistoryFromGitHub's own comment for why; same
+            // fetch/tolerance pattern as oilChange5d exactly.
+            val brentHistoryForChangeOnly = fetchBrentHistoryFromGitHub(targetDate)
+            val brentChange5d = changeNDaysAgoFromSeries(brentHistoryForChangeOnly, targetDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
+
             val giltHistory = fetchGiltYieldHistory(targetDate)
             // fetchUkRateForDate (direct BoE, Bank Rate not gilt yield -- see its own
             // comment) is a real date-matched fetch in its own right, not a bootstrap --
@@ -249,6 +267,10 @@ class MarketRepository(
             val spreadSeries = joinSpreadSeries(giltHistory, us2yHistory, toleranceDays = 3)
             val spread2yChange1d = changeNDaysAgoFromSeries(spreadSeries, targetDate, 1, toleranceDays = 1)
             val spread2yChange5d = changeNDaysAgoFromSeries(spreadSeries, targetDate, 5, toleranceDays = 2)
+            // Longer-trend companion -- same spreadSeries, no new fetch. The Fed/BoE rate
+            // divergence (US hiking, UK holding) showed up as spread2y trending wider over
+            // weeks, not something a 1d/5d window captures well.
+            val spread2yChange10d = changeNDaysAgoFromSeries(spreadSeries, targetDate, 10, toleranceDays = 2)
 
             // FX-cross momentum -- all Frankfurter, all 5-business-day % CHANGES (never a
             // raw level), same changeNDaysAgoFromSeries + 2-day tolerance as the other
@@ -300,6 +322,7 @@ class MarketRepository(
                 vix = vix,
                 spread2yChange1d = spread2yChange1d,
                 spread2yChange5d = spread2yChange5d,
+                spread2yChange10d = spread2yChange10d,
                 gbpUsdChange5d = gbpUsdChange5d,
                 oilChange5d = oilChange5d,
                 rsi14 = rsi14,
@@ -313,7 +336,10 @@ class MarketRepository(
                 usdBasketChange1d = usdBasketChange1d,
                 dayOfWeek = dayOfWeek,
                 monthOfYear = monthOfYear,
-                isMonthEnd = isMonthEnd
+                isMonthEnd = isMonthEnd,
+                brentChange5d = brentChange5d,
+                gbpUsdChange10d = gbpUsdChange10d,
+                gbpUsdChange20d = gbpUsdChange20d
             )
 
             val corePresent = listOf(gbpUsd, us2y, ukRate, vix).count { it != null }
@@ -483,6 +509,65 @@ class MarketRepository(
                 // upstream outage (e.g. FRED not publishing DCOILWTICO for days) reads as
                 // "source N business days stale" at a glance on the Bootstrap Log screen,
                 // rather than a bare NO_MATCH indistinguishable from a plain fetch miss.
+                val newestDate = historyByDate.keys.maxOrNull()
+                val staleness = newestDate?.let { AppClock.businessDaysBetween(it, targetDate) }
+                if (staleness != null) {
+                    "NO_MATCH (source $staleness business day${if (staleness == 1) "" else "s"} stale)"
+                } else {
+                    "NO_MATCH"
+                }
+            }
+        }
+        logBootstrap(source, purpose, null, null, targetDate, historyByDate, outcome)
+        return historyByDate
+    }
+
+    /** Brent crude -- a second, independent oil benchmark alongside WTI, same GitHub
+     * Action (oil-fred-fetcher) and fetch/tolerance pattern as fetchOilHistoryFromGitHub
+     * exactly, just reading data/brent-price.json via BrentPriceApi instead of
+     * data/oil-price.json. Not a replacement for WTI: Brent is the global benchmark
+     * UK/European fuel pricing actually tracks more closely, and a real comparison
+     * (2026-09) showed Brent running $15-25/barrel above WTI while staying current
+     * through a stretch where WTI's FRED series stalled for over a week -- the two carry
+     * different information (regional/geopolitical risk premiums show up in Brent
+     * first; US-specific supply/storage dynamics in WTI), so both are kept. Only ever
+     * used to compute brentChange5d -- a % CHANGE, not the raw price level, same
+     * leakage-avoidance reasoning as oilChange5d. */
+    private suspend fun fetchBrentHistoryFromGitHub(targetDate: LocalDate): Map<LocalDate, Double> {
+        val source = "brent_price_github_fred"
+        val purpose = "brentChange5d only (no raw price stored)"
+        val raw = try {
+            retryNetwork { com.example.gbpusdpredictor.network.BrentPriceApi.service.getLatestRaw() }
+        } catch (e: Exception) {
+            Log.e("MarketRepository", "fetchBrentHistoryFromGitHub failed", e)
+            logBootstrap(source, purpose, null, null, targetDate, emptyMap(), "ERROR: ${e.message}")
+            return emptyMap()
+        }
+        val entries: List<OilPriceEntry> = try {
+            @Suppress("DEPRECATION") // JsonParser().parse() works across a much wider range of
+            // Gson versions than the newer static JsonParser.parseString().
+            val root = com.google.gson.JsonParser().parse(raw)
+            when {
+                root.isJsonArray -> root.asJsonArray.mapNotNull { el ->
+                    try { gson.fromJson(el, OilPriceEntry::class.java) } catch (e: Exception) { null }
+                }
+                root.isJsonObject -> listOfNotNull(
+                    try { gson.fromJson(root, OilPriceEntry::class.java) } catch (e: Exception) { null }
+                )
+                else -> emptyList()
+            }
+        } catch (e: Exception) {
+            Log.w("MarketRepository", "fetchBrentHistoryFromGitHub: couldn't parse response -- raw content started with: ${raw.take(80)}", e)
+            emptyList()
+        }
+        val historyByDate: Map<LocalDate, Double> = entries.mapNotNull { entry ->
+            val parsedDate = try { LocalDate.parse(entry.date) } catch (e: Exception) { null }
+            parsedDate?.let { it to entry.price }
+        }.toMap()
+        val outcome = when {
+            historyByDate.isEmpty() -> "EMPTY"
+            historyByDate.containsKey(targetDate) -> "OK"
+            else -> {
                 val newestDate = historyByDate.keys.maxOrNull()
                 val staleness = newestDate?.let { AppClock.businessDaysBetween(it, targetDate) }
                 if (staleness != null) {

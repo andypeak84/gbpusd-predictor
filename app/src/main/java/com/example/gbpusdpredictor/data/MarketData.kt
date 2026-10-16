@@ -99,6 +99,23 @@ data class MarketData(
     val dayOfWeek: Double? = null,
     val monthOfYear: Double? = null,
     val isMonthEnd: Double? = null,
+    // v9 -> v10: Brent crude 5-day % change, a second independent oil benchmark
+    // alongside oilChange5d (WTI) -- not a replacement. Real comparison (2026-09)
+    // showed Brent running $15-25/barrel above WTI and staying current through a
+    // stretch where WTI's FRED series stalled for over a week; Brent is also the
+    // benchmark UK/European fuel pricing tracks more closely. Same GitHub Action
+    // (oil-fred-fetcher) and fetch/tolerance pattern as oilChange5d -- see
+    // MarketRepository.fetchBrentHistoryFromGitHub. Null follows the usual rule.
+    val brentChange5d: Double? = null,
+    // v10 -> v11: longer-trend momentum companions, zero new fetches (same
+    // gbpHistory/spreadSeries already fetched for the 1d/5d versions). Added because
+    // the model only ever saw 1d/5d windows and kept calling stabilization during real,
+    // sustained declines (three live misses Sep 21/28/30, all mid-decline) -- it had no
+    // way to tell "still trending" from "noise" at a longer horizon. See
+    // MarketRepository.refreshData()'s v10->v11 addition.
+    val gbpUsdChange10d: Double? = null,
+    val gbpUsdChange20d: Double? = null,
+    val spread2yChange10d: Double? = null,
     // Legacy same-day estimate from the old hand-tuned linear formula. Kept only so old
     // rows don't break; no longer written by refreshData(). Prefer predicted14dRate below.
     @Deprecated("Superseded by predicted14dRate from the gradient-boosted-trees model")

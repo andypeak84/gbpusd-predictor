@@ -3,6 +3,7 @@ package com.example.gbpusdpredictor.network
 import retrofit2.converter.scalars.ScalarsConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Headers
+import retrofit2.http.Query
 
 /**
  * The user's own free, self-maintained UK 2yr gilt yield snapshot at
@@ -16,12 +17,15 @@ import retrofit2.http.Headers
  * matches the target date, regardless of which shape the file is currently in.
  */
 interface GiltYieldService {
-    // raw.githubusercontent.com serves plain file bytes with no caching headers of its own
-    // to worry about; Cache-Control: no-cache here just makes sure any intermediate proxy
-    // doesn't hand back yesterday's snapshot instead of a fresh fetch.
+    // See OilPriceService.kt's own comment -- same raw.githubusercontent.com Fastly CDN,
+    // which ignores a client-sent Cache-Control request header for its own caching
+    // decision (confirmed the hard way on the oil/Brent endpoints, 2026-10: 5 days
+    // stuck on one stale snapshot despite the committed file and the GitHub Action both
+    // being fine). This endpoint hasn't shown the symptom yet, but it's the identical
+    // CDN and identical risk, so the same cacheBust fix applies pre-emptively.
     @Headers("Cache-Control: no-cache")
     @GET("andypeak84/gilt-yield-fetcher/main/data/gilt-2y.json")
-    suspend fun getLatestRaw(): String
+    suspend fun getLatestRaw(@Query("cacheBust") cacheBust: Long = System.currentTimeMillis()): String
 }
 
 object GiltYieldApi {

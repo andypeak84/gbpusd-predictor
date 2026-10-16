@@ -309,7 +309,14 @@ class MainActivity : AppCompatActivity() {
 
         addLine(detailSection, "Forecast horizon", 16f, Gravity.START, bold = true)
         addLine(detailSection, "Tap a day to select it. Long-press any day to compare multiple horizons at once.", 12f, Gravity.START)
-        horizonButtonsRow = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.HORIZONTAL }
+        horizonButtonsRow = LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            // MATCH_PARENT so the 7 equal-weight buttons (see addHorizonButton) actually
+            // divide up the full screen width instead of just wrap-sizing to their
+            // smallest natural width -- weight only distributes space within a row that's
+            // already constrained to a known width.
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
         detailSection.addView(horizonButtonsRow)
         dayButtons.clear()
         (1..7).forEach { days -> addHorizonButton(days) }
@@ -332,7 +339,8 @@ class MainActivity : AppCompatActivity() {
         addLine(detailSection, "US 2yr yield: ${fmt(latest.us2y, "%.3f")}%", 14f, Gravity.START)
         addLine(detailSection, "Spread (UK - US 2yr): ${fmt(latest.spread2y, "%.3f")}", 14f, Gravity.START)
         addLine(detailSection, "VIX: ${fmt(latest.vix, "%.2f")}", 14f, Gravity.START)
-        addLine(detailSection, "Oil 5d change: ${fmtPct(latest.oilChange5d)}", 14f, Gravity.START)
+        addLine(detailSection, "Oil (WTI) 5d change: ${fmtPct(latest.oilChange5d)}", 14f, Gravity.START)
+        addLine(detailSection, "Oil (Brent) 5d change: ${fmtPct(latest.brentChange5d)}", 14f, Gravity.START)
         addLine(detailSection, "GBP/USD 5d change: ${fmtPct(latest.gbpUsdChange5d)}", 14f, Gravity.START)
         addLine(detailSection, "GBP/EUR 5d change: ${fmtPct(latest.gbpEurChange5d)}", 14f, Gravity.START)
         addLine(detailSection, "EUR/USD 5d change: ${fmtPct(latest.eurUsdChange5d)}", 14f, Gravity.START)
@@ -342,6 +350,9 @@ class MainActivity : AppCompatActivity() {
         addLine(detailSection, "US 2yr yield 5d change: ${fmtPct(latest.us2yChange5d)}", 14f, Gravity.START)
         addLine(detailSection, "VIX 5d change: ${fmtPct(latest.vixChange5d)}", 14f, Gravity.START)
         addLine(detailSection, "GBP/USD 1d change: ${fmtPct(latest.gbpUsdChange1d)}", 14f, Gravity.START)
+        addLine(detailSection, "GBP/USD 10d change: ${fmtPct(latest.gbpUsdChange10d)}", 14f, Gravity.START)
+        addLine(detailSection, "GBP/USD 20d change: ${fmtPct(latest.gbpUsdChange20d)}", 14f, Gravity.START)
+        addLine(detailSection, "Spread (UK-US 2yr) 10d change: ${fmtPct(latest.spread2yChange10d)}", 14f, Gravity.START)
         addLine(detailSection, "USD basket 1d change (vs EUR/JPY/CAD/CHF): ${fmtPct(latest.usdBasketChange1d)}", 14f, Gravity.START)
         addLine(detailSection, "Day of week: ${fmt(latest.dayOfWeek, "%.0f")}", 14f, Gravity.START)
         addLine(detailSection, "Month: ${fmt(latest.monthOfYear, "%.0f")}", 14f, Gravity.START)
@@ -382,11 +393,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addHorizonButton(days: Int) {
+        // 7 plain Buttons in a row overflowed a portrait-width screen (each one uses the
+        // Material default ~88dp minWidth, 7x that is way past a ~360-400dp phone width),
+        // so only the first few were reachable without rotating to landscape. Zeroing
+        // minWidth/minHeight and giving each button equal weight on a MATCH_PARENT row
+        // makes all 7 share the available width and shrink to fit portrait -- same fix
+        // shape as chartView's inline dp conversion above.
+        val marginPx = (2 * resources.displayMetrics.density).toInt()
         val button = Button(this).apply {
             text = "${days}d"
             textSize = 12f
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
+            setPadding(0, paddingTop, 0, paddingBottom)
             setOnClickListener { onDayTapped(days) }
             setOnLongClickListener { onDayLongPressed(days); true }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = marginPx
+                marginEnd = marginPx
+            }
         }
         dayButtons[days] = button
         horizonButtonsRow.addView(button)
@@ -521,6 +548,10 @@ class MainActivity : AppCompatActivity() {
         row.addView(Button(this).apply {
             text = "Accuracy"
             setOnClickListener { startActivity(Intent(this@MainActivity, AccuracyActivity::class.java)) }
+        })
+        row.addView(Button(this).apply {
+            text = "Price Alerts"
+            setOnClickListener { startActivity(Intent(this@MainActivity, PriceAlertSettingsActivity::class.java)) }
         })
 
         parent.addView(row)

@@ -3,6 +3,7 @@ package com.example.gbpusdpredictor.network
 import retrofit2.converter.scalars.ScalarsConverterFactory
 import retrofit2.http.GET
 import retrofit2.http.Headers
+import retrofit2.http.Query
 
 /**
  * The user's own WTI crude oil price history at
@@ -28,12 +29,18 @@ interface OilPriceService {
     // branch ("andypeak84/Oilfetcher/data/oil-price.json"), which raw.githubusercontent
     // answers with a 404 -- and a 404 is an HttpException, not an IOException, so
     // retryNetwork() didn't retry it and oilChange5d silently stayed null on every row.
-    // raw.githubusercontent.com serves plain file bytes with no caching headers of its
-    // own to worry about; Cache-Control: no-cache here just makes sure any intermediate
-    // proxy doesn't hand back yesterday's snapshot instead of a fresh fetch.
+    // raw.githubusercontent.com is served through GitHub's own Fastly CDN, which caches
+    // by URL at its OWN discretion and does NOT honour a client-sent Cache-Control
+    // request header for that decision (that header only ever governs intermediate
+    // proxies the CLIENT controls, not the origin's CDN) -- confirmed the hard way
+    // (2026-10): the committed data/oil-price.json was fresh every single day (verified
+    // directly against FRED), but this endpoint kept returning 2026-10-06's snapshot for
+    // 5 straight days regardless. cacheBust (current epoch millis, a new value every
+    // call) forces a different request URL each time, which IS something Fastly's cache
+    // key respects -- the one reliable way to defeat this from the client side.
     @Headers("Cache-Control: no-cache")
     @GET("andypeak84/Oilfetcher/main/data/oil-price.json")
-    suspend fun getLatestRaw(): String
+    suspend fun getLatestRaw(@Query("cacheBust") cacheBust: Long = System.currentTimeMillis()): String
 }
 
 object OilPriceApi {

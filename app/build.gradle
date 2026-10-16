@@ -10,6 +10,7 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.withInputStream { localProperties.load(it) }
 }
 def fredApiKey = localProperties.getProperty('FRED_API_KEY', 'MISSING_FRED_KEY')
+def alphaVantageApiKey = localProperties.getProperty('ALPHA_VANTAGE_API_KEY', 'MISSING_ALPHA_VANTAGE_KEY')
 
 android {
     compileSdk 34
@@ -23,18 +24,19 @@ android {
         applicationId "com.example.gbpusdpredictor"
         minSdk 26
         targetSdk 34
-        versionCode 65
+        versionCode 69
         // Synced to the newgdp-vNN zip numbering this project ships under (see
         // MainActivity.kt, which shows this on-screen) -- bump both this and versionCode
         // above together on every delivered zip from here on. Jumped 63 -> 65 (skipping
         // 64) because the prior oilChange5d anchor-tolerance fix shipped without this
         // bump -- the phone kept showing v63 despite that fix being live, real confusion
         // during a live debugging session. Never skip this again.
-        versionName "65"
+        versionName "69"
 
         testApplicationId "com.example.gbpusdpredictor.test"
 
         buildConfigField "String", "FRED_API_KEY", "\"${fredApiKey}\""
+        buildConfigField "String", "ALPHA_VANTAGE_API_KEY", "\"${alphaVantageApiKey}\""
     }
 
     buildTypes {

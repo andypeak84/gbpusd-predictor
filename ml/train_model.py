@@ -76,6 +76,34 @@ FEATURE_ORDER = [
     # business-day definition (next business day rolls into a new month), matching
     # AppClock.businessDaysForward on the app side -- see build_dataset()'s own comment.
     "dayOfWeek", "monthOfYear", "isMonthEnd",
+    # Brent crude 5-day % change -- a second, independent oil benchmark alongside
+    # oilChange5d (WTI), not a replacement. Real comparison (2026-09) showed Brent
+    # running $15-25/barrel above WTI and staying current through a stretch where
+    # WTI's FRED series stalled for over a week; Brent is also the benchmark
+    # UK/European fuel pricing tracks more closely. Matches
+    # MarketRepository.refreshData()'s v9->v10 addition exactly.
+    "brentChange5d",
+    # Longer-trend momentum companions -- zero new fetches (same gbpUsd series already
+    # fetched above). Added (2026-10) because the model only ever saw 1d/5d windows and
+    # kept calling stabilization during real, sustained declines (three live misses Sep
+    # 21/28/30, all mid-decline) -- no way to tell "still trending" from "noise" at a
+    # longer horizon. Matches MarketRepository.refreshData()'s v10->v11 addition.
+    # (spread2yChange10d is the same idea but spread2y-conditional -- see the
+    # --include-uk2y prepend block below, same pattern as spread2yChange1d/5d.)
+    #
+    # KNOWN TRADEOFF, explicit user call (2026-10): a systematic ablation isolating
+    # features from hyperparameters showed these three features raise 1-day holdout
+    # accuracy 51.7%->57.5% (the horizon the app actually ships) with much better
+    # calibration (corr +0.014->+0.050, slope 0.035->0.138), but cost ~16.5 points of
+    # directional accuracy specifically on the 2022 mini-budget stress window
+    # (59.0%->42.5%) -- a sharp V-shaped reversal is exactly where a 10-20 day trend
+    # feature actively misleads, still encoding "falling" right as the trend violently
+    # reverses. Kept anyway: day-to-day 1-day accuracy near coin-flip was judged worse
+    # than fragility during one rare multi-week crisis window. Revisit if a future
+    # ablation finds a way to get the sustained-trend benefit without the sharp-reversal
+    # cost (e.g. a shorter window than 10/20d, or some form of reversal detection to
+    # down-weight the feature).
+    "gbpUsdChange10d", "gbpUsdChange20d",
 ]
 # oilPrice (the raw WTI LEVEL) was removed from the model's feature set: same
 # cross-regime leakage as gbpUsd's price level (see below), and the live app hardcodes
@@ -418,6 +446,8 @@ def build_dataset(
     vix = fetch_fred_series("VIXCLS", fred_api_key, start, end)
     print("Fetching WTI oil (FRED: DCOILWTICO)...")
     oil = fetch_fred_series("DCOILWTICO", fred_api_key, start, end)
+    print("Fetching Brent oil (FRED: DCOILBRENTEU)...")
+    brent = fetch_fred_series("DCOILBRENTEU", fred_api_key, start, end)
     print("Fetching GBP/USD (Frankfurter)...")
     gbpusd = fetch_gbpusd_series(start, end)
     print("Fetching GBP/EUR + EUR/USD (Frankfurter)...")
@@ -457,7 +487,13 @@ def build_dataset(
     frame["gbpUsdChange5d"] = frame["gbpUsd"].pct_change(5, fill_method=None)
     # Zero-new-fetch momentum companion -- same gbpUsd column, 1-day instead of 5.
     frame["gbpUsdChange1d"] = frame["gbpUsd"].pct_change(1, fill_method=None)
+    # Longer-trend companions -- same gbpUsd column, no new fetch.
+    frame["gbpUsdChange10d"] = frame["gbpUsd"].pct_change(10, fill_method=None)
+    frame["gbpUsdChange20d"] = frame["gbpUsd"].pct_change(20, fill_method=None)
     frame["oilChange5d"] = compute_oil_change_5d(business_days, oil)
+    # Brent crude -- same per-row nearest-join logic as WTI (compute_oil_change_5d is
+    # already source-agnostic despite the name), a second independent oil benchmark.
+    frame["brentChange5d"] = compute_oil_change_5d(business_days, brent)
     frame["rsi14"] = compute_rsi(frame["gbpUsd"])
     # Realized GBP/USD vol: sample stdev (ddof=1, pandas default) of the last 10 daily
     # returns. rolling(10).std() needs 10 non-NaN returns in the window (a gap -> NaN),
@@ -509,6 +545,8 @@ def build_dataset(
         frame["spread2y"] = frame["ukRate"] - frame["us2y"]  # NaN propagates naturally if either side is missing
         frame["spread2yChange1d"] = frame["spread2y"].pct_change(1, fill_method=None)
         frame["spread2yChange5d"] = frame["spread2y"].pct_change(5, fill_method=None)
+        # Longer-trend companion -- same spread2y column, no new fetch.
+        frame["spread2yChange10d"] = frame["spread2y"].pct_change(10, fill_method=None)
         # Always saved to training_data.csv for inspection even if not used as a model
         # input below -- see --include-uk2y.
         if include_uk2y:
@@ -535,7 +573,7 @@ def build_dataset(
             # -- worth rerunning the grid once real missing-value training is in place,
             # since the leakage shape that motivated some of these choices may change.
             level_features = ["ukRate", "spread2y"] if uk2y_levels else []
-            model_features = level_features + ["spread2yChange1d", "spread2yChange5d"] + model_features
+            model_features = level_features + ["spread2yChange1d", "spread2yChange5d", "spread2yChange10d"] + model_features
             print(f"Including UK 2yr yield features in the trained model (--include-uk2y set); "
                   f"levels {'included' if uk2y_levels else 'excluded (--no-uk2y-levels set)'}.")
         else:
@@ -970,9 +1008,19 @@ def main():
              "for the evidence that prompted this flag. On by default the levels ARE "
              "included (matches existing exported models); pass this flag to exclude them."
     )
-    parser.add_argument("--num-trees", type=int, default=150)
+    parser.add_argument(
+        "--num-trees", type=int, default=300,
+        help="Was 150 (shrinkage 0.03). A systematic sweep (2026-10, after the "
+             "longer-trend features were added) tested 9 configs on the same dataset: "
+             "300 trees / shrinkage 0.015 tied the old default's 1-day holdout "
+             "directional accuracy exactly, but with meaningfully better calibration "
+             "(correlation +0.050 vs +0.042, slope 0.138 vs 0.111) -- strictly "
+             "as-good-or-better on every 1-day metric, so it's the new default. Not a "
+             "dramatic win -- one holdout is noisy (see the Brent feature's own "
+             "ablation check) -- just a real, systematically-found edge over hand-tuning."
+    )
     parser.add_argument("--max-depth", type=int, default=4)
-    parser.add_argument("--shrinkage", type=float, default=0.03)
+    parser.add_argument("--shrinkage", type=float, default=0.015)
     parser.add_argument(
         "--min-examples", type=int, default=50,
         help="Minimum training rows per leaf (ydf's own default is 5). Raising this forces "

@@ -5,12 +5,22 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import com.example.gbpusdpredictor.work.MarketDataScheduler
 import com.example.gbpusdpredictor.work.MarketDataWorker
+import com.example.gbpusdpredictor.work.PriceAlertPrefs
+import com.example.gbpusdpredictor.work.PriceAlertScheduler
+import com.example.gbpusdpredictor.work.PriceAlertWorker
 
 class GbpUsdPredictorApp : Application() {
     override fun onCreate() {
         super.onCreate()
         createDailyForecastChannel()
+        createPriceAlertChannel()
         MarketDataScheduler.start(this)
+        // Only (re)start the hourly chain if the user has actually enabled alerts --
+        // mirrors PriceAlertScheduler.stop() being called on disable, so a cold start
+        // doesn't silently resurrect a chain the user turned off.
+        if (with(PriceAlertPrefs) { priceAlertsEnabled }) {
+            PriceAlertScheduler.start(this)
+        }
     }
 
     /** minSdk is 26, so a NotificationChannel always exists to attach the daily-forecast
@@ -26,6 +36,21 @@ class GbpUsdPredictorApp : Application() {
             NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
             description = "The daily GBP/USD forecast, posted after the 21:00 UTC refresh."
+        }
+        manager.createNotificationChannel(channel)
+    }
+
+    /** IMPORTANCE_HIGH (unlike the daily forecast's DEFAULT) -- a price alert is, by
+     * definition, something the user asked to be interrupted for, not a once-a-day
+     * summary to glance at later. */
+    private fun createPriceAlertChannel() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val channel = NotificationChannel(
+            PriceAlertWorker.NOTIFICATION_CHANNEL_ID,
+            PriceAlertWorker.NOTIFICATION_CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Live GBP/USD threshold and hourly-move alerts you've configured."
         }
         manager.createNotificationChannel(channel)
     }

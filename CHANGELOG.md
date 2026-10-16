@@ -4,6 +4,197 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v69 — add hourly live-rate price alerts — 2026-10-17
+
+New feature, independent of the daily forecast/prediction pipeline entirely: an
+optional hourly check of the live GBP/USD rate, with a notification if it crosses a
+level you set or moves more than a % you set within an hour.
+
+### Why a new data source
+Every existing source (FRED, Frankfurter, the GitHub-Action fetchers) is daily-
+granularity by design -- MarketRepository's whole refresh model is anchored to
+`previousBusinessDay()`, once a day. An alert that should fire within the hour can't
+wait on that. Added **Alpha Vantage**'s `CURRENCY_EXCHANGE_RATE` endpoint (free key,
+25 requests/day -- comfortably covers hourly polling with a request to spare) as a
+third, independent source used only by this feature.
+
+### Added
+- `network/AlphaVantageService.kt` -- Retrofit service + response models. Alpha
+  Vantage returns HTTP 200 with an "Error Message"/"Note"/"Information" field instead
+  of a 4xx/5xx for a bad key or rate-limit hit -- checked explicitly in
+  `fetchLiveRate()` rather than relying on retry-on-IOException logic to ever catch it.
+- `work/PriceAlertWorker.kt` + `PriceAlertScheduler.kt` -- hourly self-rescheduling
+  OneTimeWorkRequest chain, same drift-resistant pattern as `MarketDataScheduler`
+  (periodic WorkManager requests drift under Doze; a chain that recomputes "next hour
+  from now" every run doesn't compound that drift), just anchored to a flat 60-minute
+  interval instead of a daily UTC clock time. Entirely separate unique-work name from
+  the daily chain -- two independent chains.
+- `work/PriceAlertPrefs.kt` -- settings + state (enabled, upper/lower rate thresholds,
+  hourly % move threshold, last hourly rate for the % comparison, last
+  attempt/outcome for diagnosability).
+- `PriceAlertSettingsActivity.kt` (new "Price Alerts" button on the main screen) --
+  set either or both trigger kinds, independently optional. Includes a **Send Test
+  Alert** button that fetches the live rate immediately and force-posts a
+  notification, bypassing the hourly wait and any threshold check, to verify the
+  whole pipeline (API key, network, POST_NOTIFICATIONS permission) works on demand.
+- New `price_alert` notification channel, `IMPORTANCE_HIGH` (unlike the daily
+  forecast's `DEFAULT`) -- an alert is by definition something the user asked to be
+  interrupted for.
+
+### Not touched
+No change to `market_data`, the tree model, or the daily refresh -- this is a fully
+separate live watch-and-alert, not a new prediction input.
+
+`versionCode`/`versionName` 68 → 69.
+
+## v68 — fix stale oil/Brent data: GitHub's raw-content CDN ignores client no-cache — 2026-10-16
+
+Prompted by a live accuracy check: v67's last 4 predictions in a row were all misses,
+all in the same direction (bearish/flat while GBP/USD climbed 4 straight sessions).
+Dug into why -- confirmed that's the already-known, accepted longer-trend-feature lag
+(10/20-day windows still mostly spanning the September decline), not a bug. But the
+same dig surfaced a real, separate bug: `oilChange5d`/`brentChange5d` were null on
+several recent rows, and `bootstrap_fetch_log` showed the oil/Brent fetch pinned to
+**2026-10-06's value for 5 straight days** (10-06 through 10-14) despite running daily
+without error.
+
+Root cause: `andypeak84/Oilfetcher`'s GitHub Action ran successfully every day and its
+committed `data/oil-price.json` WAS fresh every day (verified directly against FRED's
+own API -- FRED had distinct values for every date in the stuck window, so this
+wasn't FRED stalling like v66's Brent-add story). The bug was entirely client-side:
+`raw.githubusercontent.com` is served through GitHub's own Fastly CDN, which caches
+by URL **at its own discretion** and does **not** honour a client-sent `Cache-Control`
+request header for that decision -- that header only ever governs intermediate
+proxies the client itself controls, never the origin's own CDN. `OilPriceService.kt`/
+`BrentPriceService.kt`/`GiltYieldService.kt` all sent `Cache-Control: no-cache`
+believing it would do this (see their own prior comments) -- it does nothing against
+Fastly. The app was stuck re-reading one Fastly edge's cached copy for 5 days until
+that edge's cache happened to expire or get missed on its own.
+
+### Fixed -- cache-busting query parameter
+Added `@Query("cacheBust") cacheBust: Long = System.currentTimeMillis()` to all three
+raw.githubusercontent.com-backed services (`OilPriceService`, `BrentPriceService`,
+`GiltYieldService` -- the last hasn't shown the symptom yet, but it's the identical
+CDN and identical risk, fixed pre-emptively). A different query string on every
+request is something Fastly's cache key DOES respect, unlike a request header --
+the one reliable way to defeat this from the client side. Default parameter value
+means no call-site changes needed at `MarketRepository.kt`'s three call sites.
+
+### Not changed
+The longer-trend-feature reversal lag found during the same accuracy check (see
+`train_model.py`'s `FEATURE_ORDER` comment) -- that's the known, explicitly-accepted
+v67 tradeoff playing out live, not a bug, and should self-correct as the 10/20-day
+windows roll past the September decline.
+
+`versionCode`/`versionName` 67 → 68.
+
+## v67 — longer-trend momentum features + systematic hyperparameter sweep — 2026-10-07
+
+Prompted by: "can it be made more accurate, the misses are quite large" -- three real
+live misses (Sep 21/28/30) were all the model calling stabilization mid a genuinely
+sustained decline; it only ever saw 1d/5d momentum windows, with no way to tell
+"still trending" from "noise" over a longer stretch. Addressed in two parts, both
+explicitly requested together ("can we do 1 & 2").
+
+### 1. Added — `gbpUsdChange10d`, `gbpUsdChange20d`, `spread2yChange10d`
+Zero new fetches -- same `gbpHistory`/`spreadSeries` already pulled for the 1d/5d
+versions, just a longer `changeNDaysAgoFromSeries()` window. `data/MarketData.kt` --
+3 new nullable fields; DB `version 10 → 11` (real `ALTER TABLE` migration, not
+destructive -- see `AppDatabase.kt`'s `MIGRATION_10_11`, same reasoning as v66's
+`MIGRATION_9_10`). `HistoryActivity.kt` -- 3 new columns.
+
+### 2. Systematic hyperparameter sweep (not hand-tuning)
+Built the dataset once, trained 9 num_trees/max_depth/shrinkage/min_examples
+configs against the identical data/holdout split, compared 1-day accuracy +
+calibration (correlation, slope) + RMSE. New default: **`num_trees=300,
+shrinkage=0.015`** (was 150/0.03, same max_depth=4/min_examples=50) -- ties the old
+default's 1-day accuracy exactly but with meaningfully better calibration (corr
++0.042→+0.050, slope 0.111→0.138). Not a dramatic win; a systematically-found edge,
+strictly as-good-or-better on every 1-day metric.
+
+### Known tradeoff — found via ablation, kept deliberately
+A 4-way ablation (old/new features × old/new hyperparameters, same stress-test data)
+isolated the longer-trend features as the whole story behind an initially alarming
+mini-budget-crisis stress-test regression:
+
+| | 1-day holdout | COVID 2020 | Mini-budget 2022 |
+|---|---|---|---|
+| Old features, old hp (pre-v67) | ~55% | 44.5% | 54.3% |
+| New features, new hp (shipped) | **57.5%** | 48.2% | **42.0%** |
+| Old features, new hp (hp only) | 51.7%* | 47.9% | 56.6% |
+
+*(*without the longer-trend features, 1-day accuracy is near coin-flip regardless of
+hyperparameters -- the features are carrying essentially all of the 1-day gain.)*
+
+A 10-20 day trend feature is exactly the wrong tool for a sharp V-shaped reversal
+(sterling cratered then partly recovered through Sep-Nov 2022) -- it keeps encoding
+"still falling" right as the trend violently reverses. Explicit choice: keep the
+features. Day-to-day 1-day accuracy near coin-flip (the fix this round was actually
+asked for) was judged worse than fragility during one rare multi-week crisis window.
+See `ml/train_model.py`'s `FEATURE_ORDER` comment for the full reasoning if this
+needs revisiting later (e.g. a shorter window, or reversal-aware down-weighting).
+
+### Retrained and verified
+25 features (22 + the 3 above), `--include-uk2y`, export self-verification passed.
+`ml/train_model_colab.ipynb` re-synced (core cell + hyperparameter cell).
+`versionCode`/`versionName` 66 → 67.
+
+## v66 — add Brent crude as a second oil benchmark — 2026-10-05
+
+Prompted by a live discussion about pump/diesel prices hitting record highs while
+`oilChange5d` (WTI) had been showing declines -- checked Brent crude (the actual
+UK/global benchmark fuel pricing tracks, not WTI, a US-specific Cushing-landlocked
+price) and found it told a different story: Brent ran **$15-25/barrel above WTI**
+through September 2026, and crucially **FRED's Brent series stayed current the whole
+time WTI's stalled for over a week**. Added as a second, independent benchmark
+alongside WTI, not a replacement -- the two carry different information (regional/
+geopolitical risk premiums show up in Brent first; US-specific supply/storage
+dynamics in WTI).
+
+### Added -- `brentChange5d`
+Mirrors `oilChange5d` exactly, same files, same pattern, same 1-business-day anchor
+tolerance:
+- **Separate repo (`andypeak84/Oilfetcher`)**: `fetch_oil_price_fred.py` generalised
+  to fetch both WTI and Brent (FRED `DCOILBRENTEU`, EIA `RBRTE` fallback), writing a
+  new `data/brent-price.json` alongside the existing `data/oil-price.json` (unchanged
+  shape/behavior). Verified live with a manual `workflow_dispatch` run.
+- `app/.../network/BrentPriceService.kt` (new) -- same Retrofit/raw-text pattern as
+  `OilPriceService.kt`.
+- `repository/MarketRepository.kt` -- `fetchBrentHistoryFromGitHub()` mirrors
+  `fetchOilHistoryFromGitHub()` exactly (same enriched staleness logging); `brentChange5d`
+  computed in `refreshData()` with `anchorToleranceDays = 1`, same as `oilChange5d`.
+- `data/MarketData.kt` -- new nullable field; DB `version 9 → 10`.
+- `MainActivity.kt` / `HistoryActivity.kt` -- labels updated to "Oil (WTI)" / "Oil
+  (Brent)" to disambiguate now that there are two.
+- `ml/train_model.py` -- fetches `DCOILBRENTEU`, computes `brentChange5d` via the
+  already-source-agnostic `compute_oil_change_5d()` (no changes needed to that
+  function itself), added to `FEATURE_ORDER`. `ml/train_model_colab.ipynb` re-synced.
+
+### Retrained and verified -- real numbers
+Same shipped hyperparameters, 22 features now (21 + `brentChange5d`).
+
+- **10,577 rows** (2023-10-06 to 2026-10-01), 8,990 train / 1,587 test.
+- `brentChange5d` null rate: **0.47%** (42/8,990) -- healthy, matching `oilChange5d`'s
+  own rate on this run, not a source-specific reliability problem.
+- `brentChange5d` importance: **1,033** vs `oilChange5d`'s 1,096 -- comparable, neither
+  dominates (no leakage red flag).
+- **Holdout directional accuracy: 58.5%** (previous: 59.0%) -- flat, within noise.
+- **Ablation check**: re-ran with `brentChange5d` excluded from `FEATURE_ORDER` (same
+  data window) specifically to isolate its effect after the 1-day calibration slope
+  came out much weaker than the last run (0.041 vs the previous 0.47). The ablation
+  run showed the **same weak 1-day slope (0.044, corr +0.018) with Brent excluded
+  entirely** -- so this is NOT caused by adding Brent, it's this window's holdout
+  period genuinely containing more of the choppy late-September stretch already
+  being tracked live (three misses in a row Sep 21-23). Every other horizon (5-14
+  day) matched closely between the two runs. Brent is safe to ship.
+- **Export self-verification: 1,587/1,587 rows matched** (median error 0.00000002).
+- **Stress tests**: `covid_crash_2020` 47.9% (previous 44.5%, within noise),
+  `mini_budget_crisis_2022` 55.7% (previous 54.3%, within noise).
+
+Model copied to `app/src/main/assets/market_predictor_trees.json`. `versionCode`/
+`versionName` bumped 65 → 66. As always: `gradle clean assembleDebug` + reinstall
+needed before this reaches the phone.
+
 ## v65 — fix oversized/miscalibrated forecasts + EIA oil fallback — 2026-09-24
 
 ### Fixed -- forecasts were 3-7x too large at short horizons
