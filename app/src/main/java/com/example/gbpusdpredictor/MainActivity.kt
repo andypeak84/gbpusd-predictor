@@ -88,7 +88,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var amountLine: TextView
     private lateinit var horizonButtonsRow: LinearLayout
     private lateinit var sentimentStatusLine: TextView
-    private lateinit var sentimentTestButton: Button
+    private lateinit var sentimentEffectLine: TextView
 
     // Optional "I want to convert £X" amount, so the recommendation can be shown in actual
     // dollars, not just a rate. Persisted in its own prefs file; null = not set.
@@ -473,8 +473,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** The on/off toggle for the news-sentiment overlay, a one-line status, and a test
-     * button. When ON, renderPrediction() shifts every displayed forecast (and the advice
+    /** The on/off toggle for the news-sentiment overlay and a status line. When ON, renderPrediction() shifts every displayed forecast (and the advice
      * line, which is derived from it) by SentimentAdjustment.tilt(). OFF by default: it is
      * an unvalidated judgement-sized nudge, not part of the trained model -- see
      * SentimentRepository's top comment. */
@@ -499,15 +498,9 @@ class MainActivity : AppCompatActivity() {
         parent.addView(checkbox)
         sentimentStatusLine = TextView(this).apply { textSize = 12f; setPadding(0, 0, 0, 4) }
         parent.addView(sentimentStatusLine)
-        sentimentTestButton = Button(this).apply {
-            textSize = 11f
-            setOnClickListener {
-                SentimentRepository.cycleTestMode(this@MainActivity)
-                updateSentimentStatus()
-                latestData?.let { renderPrediction(it) }
-            }
-        }
-        parent.addView(sentimentTestButton)
+        // Filled in by renderPrediction(): what the news does to the forecast of the selected horizon(s).
+        sentimentEffectLine = TextView(this).apply { textSize = 14f; setPadding(0, 0, 0, 4); setTypeface(typeface, android.graphics.Typeface.BOLD) }
+        parent.addView(sentimentEffectLine)
         updateSentimentStatus()
         if (checkbox.isChecked) refreshSentimentAsync()
     }
@@ -515,15 +508,9 @@ class MainActivity : AppCompatActivity() {
     private fun updateSentimentStatus(fetchError: String? = null) {
         val enabled = SentimentRepository.isEnabled(this)
         val reading = SentimentRepository.reading(this)
-        sentimentTestButton.text = when (SentimentRepository.testMode(this)) {
-            1 -> "Test override: simulated BULLISH news (tap to change)"
-            2 -> "Test override: simulated BEARISH news (tap to change)"
-            else -> "Test the effect: simulate bullish / bearish news"
-        }
         sentimentStatusLine.text = when {
             !enabled -> "Off — the forecast below is the model alone."
             reading == null -> "No recent news reading${fetchError?.let { " ($it)" } ?: ""} — the forecast below is the model alone."
-            reading.isTest -> "TEST OVERRIDE: simulated ${reading.label} news (${"%+.2f".format(Locale.UK, reading.score)}). Not real data."
             else -> {
                 val age = reading.ageHours?.let {
                     if (it < 1.0) "${(it * 60).toInt()} min ago" else "${"%.1f".format(Locale.UK, it)} h ago"
@@ -548,6 +535,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderPrediction(latest: MarketData) {
         amountLine.text = ""
+        sentimentEffectLine.text = ""
         val gbpUsd = latest.gbpUsd
         if (gbpUsd == null) {
             refreshChartHistory(emptyList())
@@ -570,6 +558,12 @@ class MainActivity : AppCompatActivity() {
                 val tilt = sentiment?.let { s -> SentimentAdjustment.tilt(s.score, s.articles, model.horizonSdPct(days)) } ?: 0.0
                 val changePct = it + tilt
                 Triple(days, changePct, gbpUsd * (1.0 + changePct))
+            }
+        }
+        if (sentiment != null && predictions.isNotEmpty()) {
+            sentimentEffectLine.text = "News effect on the pound: " + predictions.joinToString(", ") { (days, changePct, _) ->
+                val shift = changePct - (modelChanges[days] ?: changePct)
+                "${days}d ${"%+.2f".format(Locale.UK, shift * 100)}%"
             }
         }
         // "model +0.05% / news -0.03%" breakdown for a horizon, or "" when the overlay is

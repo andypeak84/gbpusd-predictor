@@ -42,29 +42,30 @@ data class SentimentSignal(
         (nowMs / 1000.0 - generatedTs) / 3600.0
 }
 
-/** What the overlay is actually using right now: a real published reading, or a local
- * test override (see SentimentRepository.cycleTestMode). */
+/** The published reading the overlay is using right now. */
 data class SentimentReading(
     val score: Double,
     val articles: Int,
     val label: String,
     val ageHours: Double?,
-    val isTest: Boolean,
     val headlines: List<SentimentHeadline>
 )
 
 object SentimentAdjustment {
     /** The shift for a FULL-strength (|score| = 1), well-evidenced reading, as a fraction
-     * of the horizon's typical move size (its horizon_sd). 0.25 makes the maximum shift at
-     * 1 day about +-0.08% -- roughly the size of the model's own typical 1-day call, so
-     * sentiment can tip a borderline forecast or advice line without ever overpowering the
-     * model. A judgement value, NOT a fitted one -- see this file's top comment. */
-    const val WEIGHT_OF_HORIZON_SD = 0.25
+     * of the horizon's typical move size (its horizon_sd). 0.75 means a full-strength reading
+     * shifts the 1-day forecast by about +-0.25% -- larger than the model's own typical 1-day
+     * call (~0.12%), so a strong news day can dominate it. Raised from 0.25 (a maximum of
+     * ~0.08%) at the owner's request so the news is visible in the forecast: at today's
+     * +0.41 reading it moves the 1-day forecast by about +0.1%. A judgement value, NOT a
+     * fitted one and never backtested -- see this file's top comment. */
+    const val WEIGHT_OF_HORIZON_SD = 0.75
 
     /** The backend's own screen warns below 3 articles because the average of one or two
      * items swings to +-1; the shift ramps up linearly to full strength at this many
-     * scored articles in the window, so a single headline can't move the forecast much. */
-    const val FULL_STRENGTH_ARTICLES = 5
+     * stories in the window, so a single headline can't move the forecast much. (Was 5; the
+     * publisher now merges same-story duplicates, so 3 stories is already a real spread.) */
+    const val FULL_STRENGTH_ARTICLES = 3
 
     /** Beyond this, a published reading is ignored rather than applied. The publisher runs
      * once a day (06:00 UTC) and GitHub's scheduler can fire hours late, so a healthy reading
@@ -84,10 +85,6 @@ object SentimentRepository {
     private const val PREFS = "news_sentiment"
     private const val KEY_ENABLED = "enabled"
     private const val KEY_CACHED_JSON = "cached_json"
-    private const val KEY_TEST_MODE = "test_mode"
-
-    // 0 = off, 1 = simulated strongly bullish, 2 = simulated strongly bearish.
-    private const val TEST_SCORE = 0.8
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -95,17 +92,6 @@ object SentimentRepository {
 
     fun setEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
-    }
-
-    fun testMode(context: Context): Int = prefs(context).getInt(KEY_TEST_MODE, 0)
-
-    /** off -> bullish -> bearish -> off. Lets the effect on the forecast be seen on demand
-     * even when the live reading is neutral (which, with the offline rule scorer, is most
-     * of the time). Local only; never published or stored with any prediction. */
-    fun cycleTestMode(context: Context): Int {
-        val next = (testMode(context) + 1) % 3
-        prefs(context).edit().putInt(KEY_TEST_MODE, next).apply()
-        return next
     }
 
     fun parse(json: String): SentimentSignal {
@@ -143,13 +129,9 @@ object SentimentRepository {
      * used because the forecasts are for days ahead and the 1h/6h windows are far noisier
      * (often zero or one article). */
     fun reading(context: Context): SentimentReading? {
-        when (testMode(context)) {
-            1 -> return SentimentReading(TEST_SCORE, SentimentAdjustment.FULL_STRENGTH_ARTICLES, "strongly bullish", null, true, emptyList())
-            2 -> return SentimentReading(-TEST_SCORE, SentimentAdjustment.FULL_STRENGTH_ARTICLES, "strongly bearish", null, true, emptyList())
-        }
         val signal = cached(context) ?: return null
         val age = signal.ageHours()
         if (age > SentimentAdjustment.MAX_AGE_HOURS) return null
-        return SentimentReading(signal.w24h.score, signal.w24h.articles, signal.w24h.label, age, false, signal.headlines)
+        return SentimentReading(signal.w24h.score, signal.w24h.articles, signal.w24h.label, age, signal.headlines)
     }
 }

@@ -4,6 +4,20 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v73 — stronger news sentiment, test button removed — 2026-10-21
+
+- **Removed the "Test the effect" button** and all test-override code (`cycleTestMode`, the simulated
+  readings). The overlay now only ever uses the real published reading.
+- **Weight raised** so the real news is visible in the forecast: `WEIGHT_OF_HORIZON_SD` 0.25 -> 0.75 and
+  `FULL_STRENGTH_ARTICLES` 5 -> 3 (same-story duplicates are now merged by the publisher, so 3 stories is a
+  real spread). At today's reading (+0.41 from 3 stories) the 1-day forecast moves about +0.10%
+  (0.75 x 0.41 x the 0.33% typical 1-day move); a full-strength reading would move it about +-0.25%, more than
+  the model's own typical 1-day call (~0.12%). **Still a judgement value, not fitted or backtested** -- a bigger
+  weight means more influence from an untested signal.
+- New bold line under the toggle, "News effect on the pound: 1d +0.10%", for the selected horizon(s).
+
+`versionCode`/`versionName` 72 -> 73.
+
 ## v72 — daily sentiment feed from its own repo, with a daily notification — 2026-10-21
 
 - The sentiment publisher now lives in its own public repo, **`andypeak84/sentiment`** (was briefly in
