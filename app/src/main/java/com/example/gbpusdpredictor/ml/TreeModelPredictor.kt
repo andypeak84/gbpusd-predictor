@@ -175,4 +175,10 @@ class TreeModelPredictor(context: Context) {
         val sd = horizonSd[daysAhead.toString()]
         return if (sd != null) ADVICE_CUTOFF_SD_FRACTION * sd else LEGACY_ADVICE_CUTOFF_PCT
     }
+
+    /** This horizon's typical move size (the training set's own sd of the % change, as a
+     * fraction), or null for a model file with no horizon_sd block. The news-sentiment
+     * overlay scales its shift by this so a given sentiment reading moves a 7-day
+     * forecast proportionally more than a 1-day one, like the moves themselves. */
+    fun horizonSdPct(daysAhead: Int): Double? = horizonSd[daysAhead.toString()]
 }

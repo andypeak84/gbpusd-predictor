@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.text.InputType
 import android.view.Gravity
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -23,6 +24,8 @@ import com.example.gbpusdpredictor.data.AppDatabase
 import com.example.gbpusdpredictor.data.MarketData
 import com.example.gbpusdpredictor.ml.TreeModelPredictor
 import com.example.gbpusdpredictor.repository.MarketRepository
+import com.example.gbpusdpredictor.sentiment.SentimentAdjustment
+import com.example.gbpusdpredictor.sentiment.SentimentRepository
 import com.example.gbpusdpredictor.ui.RateChartView
 import com.example.gbpusdpredictor.utils.AppClock
 import com.example.gbpusdpredictor.work.MarketDataScheduler
@@ -83,6 +86,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var recommendationLine: TextView
     private lateinit var amountLine: TextView
     private lateinit var horizonButtonsRow: LinearLayout
+    private lateinit var sentimentStatusLine: TextView
+    private lateinit var sentimentTestButton: Button
 
     // Optional "I want to convert £X" amount, so the recommendation can be shown in actual
     // dollars, not just a rate. Persisted in its own prefs file; null = not set.
@@ -296,6 +301,10 @@ class MainActivity : AppCompatActivity() {
         if (latest.gbpUsd == null) {
             addLine(detailSection, "No real GBP/USD reading for ${latest.date} -- see the Bootstrap Log (View History) for why.", 12f, Gravity.START)
         }
+        // Toggle sits right under the current rate so it is visible on opening the app --
+        // an earlier placement just above the forecast text was below the fold and was
+        // not found. Its effect shows in the forecast further down ("model x / news y").
+        addSentimentSection(detailSection)
         addSpacer(detailSection)
 
         chartView = RateChartView(this@MainActivity).apply {
@@ -463,6 +472,74 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** The on/off toggle for the news-sentiment overlay, a one-line status, and a test
+     * button. When ON, renderPrediction() shifts every displayed forecast (and the advice
+     * line, which is derived from it) by SentimentAdjustment.tilt(). OFF by default: it is
+     * an unvalidated judgement-sized nudge, not part of the trained model -- see
+     * SentimentRepository's top comment. */
+    private fun addSentimentSection(parent: LinearLayout) {
+        addSpacer(parent)
+        val checkbox = CheckBox(this).apply {
+            text = "Use news sentiment"
+            textSize = 15f
+            isChecked = SentimentRepository.isEnabled(this@MainActivity)
+            setOnCheckedChangeListener { _, on ->
+                SentimentRepository.setEnabled(this@MainActivity, on)
+                if (on) refreshSentimentAsync()
+                updateSentimentStatus()
+                latestData?.let { renderPrediction(it) }
+            }
+        }
+        parent.addView(checkbox)
+        sentimentStatusLine = TextView(this).apply { textSize = 12f; setPadding(0, 0, 0, 4) }
+        parent.addView(sentimentStatusLine)
+        sentimentTestButton = Button(this).apply {
+            textSize = 11f
+            setOnClickListener {
+                SentimentRepository.cycleTestMode(this@MainActivity)
+                updateSentimentStatus()
+                latestData?.let { renderPrediction(it) }
+            }
+        }
+        parent.addView(sentimentTestButton)
+        updateSentimentStatus()
+        if (checkbox.isChecked) refreshSentimentAsync()
+    }
+
+    private fun updateSentimentStatus(fetchError: String? = null) {
+        val enabled = SentimentRepository.isEnabled(this)
+        val reading = SentimentRepository.reading(this)
+        sentimentTestButton.text = when (SentimentRepository.testMode(this)) {
+            1 -> "Test override: simulated BULLISH news (tap to change)"
+            2 -> "Test override: simulated BEARISH news (tap to change)"
+            else -> "Test the effect: simulate bullish / bearish news"
+        }
+        sentimentStatusLine.text = when {
+            !enabled -> "Off — the forecast below is the model alone."
+            reading == null -> "No recent news reading${fetchError?.let { " ($it)" } ?: ""} — the forecast below is the model alone."
+            reading.isTest -> "TEST OVERRIDE: simulated ${reading.label} news (${"%+.2f".format(Locale.UK, reading.score)}). Not real data."
+            else -> {
+                val age = reading.ageHours?.let {
+                    if (it < 1.0) "${(it * 60).toInt()} min ago" else "${"%.1f".format(Locale.UK, it)} h ago"
+                } ?: "just now"
+                val fewNote = if (reading.articles < SentimentAdjustment.FULL_STRENGTH_ARTICLES) " Few articles, so the shift is scaled down." else ""
+                val headlines = reading.headlines.take(3).joinToString("") {
+                    val arrow = when { it.direction > 0 -> "▲"; it.direction < 0 -> "▼"; else -> "•" }
+                    "\n$arrow ${it.source}: ${it.title}"
+                }
+                "News (24h): ${reading.label}, ${"%+.2f".format(Locale.UK, reading.score)} from ${reading.articles} scored article(s), updated $age.$fewNote$headlines"
+            }
+        }
+    }
+
+    private fun refreshSentimentAsync() {
+        CoroutineScope(Dispatchers.Main).launch {
+            val result = withContext(Dispatchers.IO) { runCatching { SentimentRepository.refresh(this@MainActivity) } }
+            updateSentimentStatus(result.exceptionOrNull()?.let { it.message ?: it.javaClass.simpleName })
+            latestData?.let { renderPrediction(it) }
+        }
+    }
+
     private fun renderPrediction(latest: MarketData) {
         amountLine.text = ""
         val gbpUsd = latest.gbpUsd
@@ -475,9 +552,28 @@ class MainActivity : AppCompatActivity() {
 
         val orderedDays = selectedDays.sorted()
         val model = treeModel
+        // News-sentiment overlay (see SentimentRepository's own comment): null unless the
+        // user has switched it on AND there is a usable reading. modelChanges keeps the
+        // model's own number so the screen can show it separately from the shifted one.
+        val sentiment = if (SentimentRepository.isEnabled(this)) SentimentRepository.reading(this) else null
+        val modelChanges = mutableMapOf<Int, Double>()
         val predictions: List<Triple<Int, Double, Double>> = if (model == null) emptyList() else orderedDays.mapNotNull { days ->
-            val changePct = model.predictChangePct(MarketRepository.featuresFrom(latest, days))
-            changePct?.let { Triple(days, it, gbpUsd * (1.0 + it)) }
+            val modelChange = model.predictChangePct(MarketRepository.featuresFrom(latest, days))
+            modelChange?.let {
+                modelChanges[days] = it
+                val tilt = sentiment?.let { s -> SentimentAdjustment.tilt(s.score, s.articles, model.horizonSdPct(days)) } ?: 0.0
+                val changePct = it + tilt
+                Triple(days, changePct, gbpUsd * (1.0 + changePct))
+            }
+        }
+        // "model +0.05% / news -0.03%" breakdown for a horizon, or "" when the overlay is
+        // off, unavailable, or rounds to nothing at this horizon.
+        val sentimentNote = { days: Int, changePct: Double ->
+            val modelChange = modelChanges[days]
+            if (sentiment == null || modelChange == null) "" else {
+                val tilt = changePct - modelChange
+                "  [model ${"%+.2f".format(Locale.UK, modelChange * 100)}% / news ${"%+.2f".format(Locale.UK, tilt * 100)}%]"
+            }
         }
 
         val targetDateFor = { days: Int -> LocalDate.parse(latest.date).plusDays(days.toLong()) }
@@ -502,7 +598,8 @@ class MainActivity : AppCompatActivity() {
         if (predictions.size == 1) {
             val (days, changePct, predictedRate) = predictions.first()
             val targetDate = targetDateFor(days)
-            predictionLine.text = "$days-day forecast ($targetDate): ${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)"
+            predictionLine.text = "$days-day forecast ($targetDate): ${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)" +
+                sentimentNote(days, changePct).let { if (it.isEmpty()) "" else "\n$it" }
             // Cutoff scales with this horizon's own typical move size (see
             // TreeModelPredictor.adviceCutoffPctFor's own comment) -- falls back to the
             // original fixed 0.15% for a model with no horizon_sd block.
@@ -521,7 +618,8 @@ class MainActivity : AppCompatActivity() {
             }
         } else {
             predictionLine.text = predictions.joinToString("\n") { (days, changePct, predictedRate) ->
-                "${days}d (${targetDateFor(days)}): ${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)"
+                "${days}d (${targetDateFor(days)}): ${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)" +
+                    sentimentNote(days, changePct)
             }
             recommendationLine.text = "Comparing ${predictions.size} horizons — matching colours on the chart above and the day buttons below."
         }
@@ -534,27 +632,33 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    /** Two rows of two, each button given equal weighted width (MATCH_PARENT row,
+     * weight=1 per button) -- four full-text buttons ("Bootstrap Log", "Price
+     * Alerts", etc.) in a single fixed-width row would overflow or get clipped in
+     * portrait, same class of bug as the horizon buttons (see addHorizonButton's own
+     * comment) -- just four buttons instead of seven, so two rows of two fixes it
+     * without needing that one's narrower "wrap, no min width" treatment. */
     private fun addTopButtons(parent: LinearLayout) {
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun newRow() = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        fun weightedButton(label: String, onClick: () -> Unit) = Button(this).apply {
+            text = label
+            setOnClickListener { onClick() }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
 
-        row.addView(Button(this).apply {
-            text = "View History"
-            setOnClickListener { startActivity(Intent(this@MainActivity, HistoryActivity::class.java)) }
-        })
-        row.addView(Button(this).apply {
-            text = "Bootstrap Log"
-            setOnClickListener { startActivity(Intent(this@MainActivity, BootstrapLogActivity::class.java)) }
-        })
-        row.addView(Button(this).apply {
-            text = "Accuracy"
-            setOnClickListener { startActivity(Intent(this@MainActivity, AccuracyActivity::class.java)) }
-        })
-        row.addView(Button(this).apply {
-            text = "Price Alerts"
-            setOnClickListener { startActivity(Intent(this@MainActivity, PriceAlertSettingsActivity::class.java)) }
-        })
+        val row1 = newRow()
+        row1.addView(weightedButton("View History") { startActivity(Intent(this@MainActivity, HistoryActivity::class.java)) })
+        row1.addView(weightedButton("Bootstrap Log") { startActivity(Intent(this@MainActivity, BootstrapLogActivity::class.java)) })
+        parent.addView(row1)
 
-        parent.addView(row)
+        val row2 = newRow()
+        row2.addView(weightedButton("Accuracy") { startActivity(Intent(this@MainActivity, AccuracyActivity::class.java)) })
+        row2.addView(weightedButton("Price Alerts") { startActivity(Intent(this@MainActivity, PriceAlertSettingsActivity::class.java)) })
+        parent.addView(row2)
+
         addSpacer(parent)
     }
 

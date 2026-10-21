@@ -4,6 +4,64 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v71 — move the sentiment toggle to the top of the screen — 2026-10-21
+
+The v70 toggle sat just above the forecast text, below the "Amount to convert" box and off the
+bottom of the screen on a normal phone, so it was not found. Moved to directly under "Current
+rate", above the chart. No logic change. `versionCode`/`versionName` 70 -> 71.
+
+## v70 — optional news-sentiment overlay on the forecast — 2026-10-21
+
+Wires the separate `gbpusd-sentiment` project (RSS news -> scored for GBP/USD -> time-
+decayed -1..+1 score) into the app as a **toggle on the main screen**. When on, it
+shifts the displayed forecast (and therefore the advice line) by a bounded amount; the
+model's own number is shown alongside, e.g. `[model +0.05% / news -0.03%]`.
+
+### What it is, and what it is not
+It is **not** a trained model input. There is no multi-year sentiment history to train
+on (the pipeline has run for days) and it has never been backtested. It is a labelled,
+judgement-sized nudge: `0.25 x horizon_sd x score x min(1, articles/5)` -- at most about
++-0.08% at 1 day. **Default off.** `SentimentAdjustment.WEIGHT_OF_HORIZON_SD` is a
+judgement value, not a fitted one. The publisher keeps `data/sentiment-history.json` so
+that after some weeks it can be tested against what GBP/USD actually did, and the weight
+either justified or set to zero.
+
+### Honest state of the signal today
+First live run of the pipeline (it had never run against real feeds): all 4 feeds
+(BoE, Fed, 2x BBC) work, 156 items ingested, 57 relevant -- but the **offline rule
+scorer rates nearly everything neutral at confidence 0**, so the real 24h reading is
+about 0.00 from 1 article, and toggling it does almost nothing yet. A better scorer is
+what makes the toggle matter: set the `ANTHROPIC_API_KEY` repo secret on Oilfetcher
+(the Claude scorer is already built into `scorer.py`; scores are cached so each headline
+is scored once) and/or keep tuning the rules from the `ratings.csv` hand-labels. In the
+meantime a **test button** on the toggle simulates bullish/bearish news locally so the
+effect can be seen. The rule scorer also disagrees with the owner's own ratings on UK
+inflation (it calls rising UK inflation bullish; the owner rates it bearish) --
+unchanged here, noted for the scorer-tuning work.
+
+### Added
+- **Oilfetcher repo** (public data host the app already reads): `sentiment/` (copies of
+  the shared modules, refreshed by `gbpusd-sentiment/sync_to_oilfetcher.py` -- same
+  pattern as `firebase/sync_core.py`), `scripts/publish_sentiment.py` (stateless
+  ingest -> score -> aggregate, with a score cache and a scorer-signature check so a
+  scorer edit invalidates it), and `.github/workflows/publish-sentiment.yml` (hourly,
+  rebase-retry push since the oil workflow commits to the same branch). Writes
+  `data/sentiment.json`, `data/sentiment-history.json`, `data/sentiment-cache.json`.
+  Never overwrites a good signal if every feed fails. **BBC headlines are scored and
+  counted but not republished** in the public JSON (BBC RSS terms are personal /
+  non-commercial; a public repo is republication) -- central-bank items are.
+- `network/SentimentService.kt` (raw GitHub fetch with the v68 `cacheBust`),
+  `sentiment/SentimentRepository.kt` (parse, cache, 6h max age, test override, tilt maths),
+  `TreeModelPredictor.horizonSdPct()`, and the toggle/status/test-button section in
+  `MainActivity.kt`.
+
+### Not changed
+The tree model, the stored predictions and the Accuracy screen: the overlay is display-
+only, so `predicted14dChangePct` stays the model's own number and accuracy tracking is
+not contaminated. The daily notification and home-screen widget also stay model-only.
+
+`versionCode`/`versionName` 69 -> 70.
+
 ## v69 — add hourly live-rate price alerts — 2026-10-17
 
 New feature, independent of the daily forecast/prediction pipeline entirely: an
