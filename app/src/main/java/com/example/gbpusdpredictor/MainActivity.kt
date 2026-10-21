@@ -13,7 +13,9 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.view.View
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -89,10 +91,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var horizonButtonsRow: LinearLayout
     private lateinit var sentimentStatusLine: TextView
     private lateinit var sentimentEffectLine: TextView
+    private lateinit var sentimentControls: LinearLayout
 
     // Optional "I want to convert £X" amount, so the recommendation can be shown in actual
     // dollars, not just a rate. Persisted in its own prefs file; null = not set.
     private var gbpAmount: Double? = null
+
+    // The forecast text's normal colour, restored whenever the news-sentiment overlay is off
+    // (the forecast turns blue while it is included -- see renderPrediction).
+    private var predictionDefaultColor: Int = Color.BLACK
 
     // Newest stored row is considered stale once it's this many BUSINESS days behind the
     // date the daily refresh should have reached by now (AppClock.today() minus
@@ -335,6 +342,7 @@ class MainActivity : AppCompatActivity() {
         addAmountInput(detailSection)
 
         predictionLine = TextView(this@MainActivity).apply { textSize = 18f; setPadding(0, 16, 0, 8) }
+        predictionDefaultColor = predictionLine.currentTextColor
         recommendationLine = TextView(this@MainActivity).apply { textSize = 15f; setPadding(0, 8, 0, 8) }
         amountLine = TextView(this@MainActivity).apply { textSize = 15f; setPadding(0, 4, 0, 8) }
         detailSection.addView(predictionLine)
@@ -485,6 +493,7 @@ class MainActivity : AppCompatActivity() {
             isChecked = SentimentRepository.isEnabled(this@MainActivity)
             setOnCheckedChangeListener { _, on ->
                 SentimentRepository.setEnabled(this@MainActivity, on)
+                sentimentControls.visibility = if (on) View.VISIBLE else View.GONE
                 if (on) {
                     SentimentScheduler.startFresh(this@MainActivity)
                     refreshSentimentAsync()
@@ -501,6 +510,61 @@ class MainActivity : AppCompatActivity() {
         // Filled in by renderPrediction(): what the news does to the forecast of the selected horizon(s).
         sentimentEffectLine = TextView(this).apply { textSize = 14f; setPadding(0, 0, 0, 4); setTypeface(typeface, android.graphics.Typeface.BOLD) }
         parent.addView(sentimentEffectLine)
+
+        // Weighting controls, shown only while the toggle is on. Both are saved on the phone and
+        // the forecast above re-renders live as a slider moves. Reset puts back the defaults.
+        sentimentControls = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = if (checkbox.isChecked) View.VISIBLE else View.GONE
+        }
+        val weightLabel = TextView(this).apply { textSize = 13f }
+        val weightBar = SeekBar(this).apply { max = Math.round(SentimentAdjustment.MAX_WEIGHT_OF_HORIZON_SD * 100).toInt() }
+        val storiesLabel = TextView(this).apply { textSize = 13f; setPadding(0, 8, 0, 0) }
+        val storiesBar = SeekBar(this).apply { max = SentimentAdjustment.MAX_FULL_STRENGTH_STORIES - 1 }
+        fun syncControls() {
+            val weight = SentimentRepository.weight(this)
+            val stories = SentimentRepository.fullStrengthStories(this)
+            weightBar.progress = Math.round(weight * 100).toInt()
+            storiesBar.progress = stories - 1
+            weightLabel.text = "News weight: ${"%.2f".format(Locale.UK, weight)} × the typical move  (0 = no effect, ${"%.1f".format(Locale.UK, SentimentAdjustment.MAX_WEIGHT_OF_HORIZON_SD)} = maximum)"
+            storiesLabel.text = "Full strength at $stories ${if (stories == 1) "story" else "stories"}  (fewer stories scale the effect down)"
+        }
+        syncControls()
+        weightBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                SentimentRepository.setWeight(this@MainActivity, progress / 100.0)
+                syncControls()
+                latestData?.let { renderPrediction(it) }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        storiesBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (!fromUser) return
+                SentimentRepository.setFullStrengthStories(this@MainActivity, progress + 1)
+                syncControls()
+                latestData?.let { renderPrediction(it) }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+        val resetButton = Button(this).apply {
+            text = "Reset weighting to defaults"
+            textSize = 11f
+            setOnClickListener {
+                SentimentRepository.resetTuning(this@MainActivity)
+                syncControls()
+                latestData?.let { renderPrediction(it) }
+            }
+        }
+        sentimentControls.addView(weightLabel)
+        sentimentControls.addView(weightBar)
+        sentimentControls.addView(storiesLabel)
+        sentimentControls.addView(storiesBar)
+        sentimentControls.addView(resetButton)
+        parent.addView(sentimentControls)
         updateSentimentStatus()
         if (checkbox.isChecked) refreshSentimentAsync()
     }
@@ -515,7 +579,7 @@ class MainActivity : AppCompatActivity() {
                 val age = reading.ageHours?.let {
                     if (it < 1.0) "${(it * 60).toInt()} min ago" else "${"%.1f".format(Locale.UK, it)} h ago"
                 } ?: "just now"
-                val fewNote = if (reading.articles < SentimentAdjustment.FULL_STRENGTH_ARTICLES) " Few articles, so the shift is scaled down." else ""
+                val fewNote = if (reading.articles < SentimentRepository.fullStrengthStories(this)) " Few stories, so the shift is scaled down." else ""
                 val headlines = reading.headlines.take(3).joinToString("") {
                     val arrow = when { it.direction > 0 -> "▲"; it.direction < 0 -> "▼"; else -> "•" }
                     "\n$arrow ${it.source}: ${it.displayText}"
@@ -555,7 +619,7 @@ class MainActivity : AppCompatActivity() {
             val modelChange = model.predictChangePct(MarketRepository.featuresFrom(latest, days))
             modelChange?.let {
                 modelChanges[days] = it
-                val tilt = sentiment?.let { s -> SentimentAdjustment.tilt(s.score, s.articles, model.horizonSdPct(days)) } ?: 0.0
+                val tilt = sentiment?.let { s -> SentimentAdjustment.tilt(s.score, s.articles, model.horizonSdPct(days), SentimentRepository.weight(this), SentimentRepository.fullStrengthStories(this)) } ?: 0.0
                 val changePct = it + tilt
                 Triple(days, changePct, gbpUsd * (1.0 + changePct))
             }
@@ -572,7 +636,7 @@ class MainActivity : AppCompatActivity() {
             val modelChange = modelChanges[days]
             if (sentiment == null || modelChange == null) "" else {
                 val tilt = changePct - modelChange
-                "  [model ${"%+.2f".format(Locale.UK, modelChange * 100)}% / news ${"%+.2f".format(Locale.UK, tilt * 100)}%]"
+                "  ★ [model ${"%+.2f".format(Locale.UK, modelChange * 100)}% / news ${"%+.2f".format(Locale.UK, tilt * 100)}%]"
             }
         }
 
@@ -598,8 +662,20 @@ class MainActivity : AppCompatActivity() {
         if (predictions.size == 1) {
             val (days, changePct, predictedRate) = predictions.first()
             val targetDate = targetDateFor(days)
-            predictionLine.text = "$days-day forecast ($targetDate): ${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)" +
-                sentimentNote(days, changePct).let { if (it.isEmpty()) "" else "\n$it" }
+            val base = "$days-day forecast ($targetDate): ${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)"
+            val modelChange = modelChanges[days]
+            // Say plainly which number this is: the model alone, or the model plus the news shift
+            // (then also shown in blue, with the breakdown: model alone + news = this forecast).
+            predictionLine.text = when {
+                sentiment != null && modelChange != null -> {
+                    val modelRate = gbpUsd * (1.0 + modelChange)
+                    "$base\n★ INCLUDES NEWS SENTIMENT\nmodel alone ${"%.4f".format(Locale.UK, modelRate)} (${"%+.2f".format(Locale.UK, modelChange * 100)}%)" +
+                        " + news ${"%+.2f".format(Locale.UK, (changePct - modelChange) * 100)}% = ${"%.4f".format(Locale.UK, predictedRate)}"
+                }
+                SentimentRepository.isEnabled(this) -> "$base\n(model only — no recent news reading)"
+                else -> "$base\n(model only)"
+            }
+            predictionLine.setTextColor(if (sentiment != null) Color.parseColor("#1565C0") else predictionDefaultColor)
             // Cutoff scales with this horizon's own typical move size (see
             // TreeModelPredictor.adviceCutoffPctFor's own comment) -- falls back to the
             // original fixed 0.15% for a model with no horizon_sd block.
@@ -608,20 +684,23 @@ class MainActivity : AppCompatActivity() {
                 changePct > cutoff -> "Rate may rise — consider waiting before converting GBP to USD."
                 changePct < -cutoff -> "Rate may fall — converting sooner may get you more USD per GBP."
                 else -> "Rate looks broadly stable over this horizon."
-            }
+            } + if (sentiment != null) "  (includes news sentiment)" else ""
             gbpAmount?.let { amount ->
                 val nowUsd = amount * gbpUsd
                 val predUsd = amount * predictedRate
                 val diff = predUsd - nowUsd
                 amountLine.text = "£${"%,.2f".format(Locale.UK, amount)} → \$${"%,.2f".format(Locale.UK, nowUsd)} now " +
-                    "vs. \$${"%,.2f".format(Locale.UK, predUsd)} on $targetDate  (${"%+,.2f".format(Locale.UK, diff)})"
+                    "vs. \$${"%,.2f".format(Locale.UK, predUsd)} on $targetDate  (${"%+,.2f".format(Locale.UK, diff)})" +
+                    if (sentiment != null) "  — incl. news sentiment" else ""
             }
         } else {
             predictionLine.text = predictions.joinToString("\n") { (days, changePct, predictedRate) ->
                 "${days}d (${targetDateFor(days)}): ${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)" +
                     sentimentNote(days, changePct)
             }
-            recommendationLine.text = "Comparing ${predictions.size} horizons — matching colours on the chart above and the day buttons below."
+            predictionLine.setTextColor(if (sentiment != null) Color.parseColor("#1565C0") else predictionDefaultColor)
+            recommendationLine.text = "Comparing ${predictions.size} horizons — matching colours on the chart above and the day buttons below." +
+                if (sentiment != null) "  ★ = includes news sentiment." else "  (model only)"
         }
     }
 

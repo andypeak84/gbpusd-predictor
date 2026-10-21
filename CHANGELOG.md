@@ -4,6 +4,19 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v75 — make it obvious when the forecast includes the news — 2026-10-21
+
+When the news-sentiment overlay is applied, the forecast now says so: the forecast text turns blue, gains a
+"★ INCLUDES NEWS SENTIMENT" line and a breakdown ("model alone 1.3342 (+0.05%) + news +0.10% = 1.3355"), and
+the advice line and the £-conversion line are tagged "(includes news sentiment)" / "incl. news sentiment". With the
+overlay off (or on but no recent reading) it says "(model only)". Compare-horizons view marks each line with ★.
+
+## v74 — on-phone controls for the news weighting — 2026-10-21
+
+Two sliders and a reset button appear under the "Use news sentiment" toggle (only while it is on):
+**News weight** (0 to 1.5 x the typical move; default 0.75) and **Full strength at N stories** (1 to 6; default 3).
+Saved on the phone; the forecast re-renders live as a slider moves. Defaults are the v73 values.
+
 ## v73 — stronger news sentiment, test button removed — 2026-10-21
 
 - **Removed the "Test the effect" button** and all test-override code (`cycleTestMode`, the simulated

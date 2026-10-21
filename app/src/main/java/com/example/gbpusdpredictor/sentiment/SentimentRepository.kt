@@ -59,13 +59,17 @@ object SentimentAdjustment {
      * ~0.08%) at the owner's request so the news is visible in the forecast: at today's
      * +0.41 reading it moves the 1-day forecast by about +0.1%. A judgement value, NOT a
      * fitted one and never backtested -- see this file's top comment. */
-    const val WEIGHT_OF_HORIZON_SD = 0.75
+    const val DEFAULT_WEIGHT_OF_HORIZON_SD = 0.75
+
+    /** The weight slider's range on the main screen (0 = news has no effect). */
+    const val MAX_WEIGHT_OF_HORIZON_SD = 1.5
 
     /** The backend's own screen warns below 3 articles because the average of one or two
      * items swings to +-1; the shift ramps up linearly to full strength at this many
      * stories in the window, so a single headline can't move the forecast much. (Was 5; the
      * publisher now merges same-story duplicates, so 3 stories is already a real spread.) */
-    const val FULL_STRENGTH_ARTICLES = 3
+    const val DEFAULT_FULL_STRENGTH_STORIES = 3
+    const val MAX_FULL_STRENGTH_STORIES = 6
 
     /** Beyond this, a published reading is ignored rather than applied. The publisher runs
      * once a day (06:00 UTC) and GitHub's scheduler can fire hours late, so a healthy reading
@@ -73,11 +77,18 @@ object SentimentAdjustment {
      * whole day's run was missed, so it is dropped rather than applied. */
     const val MAX_AGE_HOURS = 30.0
 
-    /** Fractional shift to add to a forecast's % change (0.001 = +0.1%). */
-    fun tilt(score: Double, articles: Int, horizonSdPct: Double?): Double {
+    /** Fractional shift to add to a forecast's % change (0.001 = +0.1%). weight and
+     * fullStrengthStories are the user's own on-screen settings (see SentimentRepository). */
+    fun tilt(
+        score: Double,
+        articles: Int,
+        horizonSdPct: Double?,
+        weight: Double = DEFAULT_WEIGHT_OF_HORIZON_SD,
+        fullStrengthStories: Int = DEFAULT_FULL_STRENGTH_STORIES
+    ): Double {
         if (horizonSdPct == null) return 0.0
-        val evidence = (articles.toDouble() / FULL_STRENGTH_ARTICLES).coerceIn(0.0, 1.0)
-        return WEIGHT_OF_HORIZON_SD * score.coerceIn(-1.0, 1.0) * evidence * horizonSdPct
+        val evidence = (articles.toDouble() / fullStrengthStories.coerceAtLeast(1)).coerceIn(0.0, 1.0)
+        return weight * score.coerceIn(-1.0, 1.0) * evidence * horizonSdPct
     }
 }
 
@@ -85,6 +96,8 @@ object SentimentRepository {
     private const val PREFS = "news_sentiment"
     private const val KEY_ENABLED = "enabled"
     private const val KEY_CACHED_JSON = "cached_json"
+    private const val KEY_WEIGHT = "weight"
+    private const val KEY_FULL_STRENGTH = "full_strength_stories"
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -92,6 +105,27 @@ object SentimentRepository {
 
     fun setEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).apply()
+    }
+
+    // The two on-screen weighting controls. Stored here, read by the forecast every time it renders.
+    fun weight(context: Context): Double =
+        prefs(context).getFloat(KEY_WEIGHT, SentimentAdjustment.DEFAULT_WEIGHT_OF_HORIZON_SD.toFloat())
+            .toDouble().coerceIn(0.0, SentimentAdjustment.MAX_WEIGHT_OF_HORIZON_SD)
+
+    fun setWeight(context: Context, weight: Double) {
+        prefs(context).edit().putFloat(KEY_WEIGHT, weight.toFloat()).apply()
+    }
+
+    fun fullStrengthStories(context: Context): Int =
+        prefs(context).getInt(KEY_FULL_STRENGTH, SentimentAdjustment.DEFAULT_FULL_STRENGTH_STORIES)
+            .coerceIn(1, SentimentAdjustment.MAX_FULL_STRENGTH_STORIES)
+
+    fun setFullStrengthStories(context: Context, stories: Int) {
+        prefs(context).edit().putInt(KEY_FULL_STRENGTH, stories).apply()
+    }
+
+    fun resetTuning(context: Context) {
+        prefs(context).edit().remove(KEY_WEIGHT).remove(KEY_FULL_STRENGTH).apply()
     }
 
     fun parse(json: String): SentimentSignal {
