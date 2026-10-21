@@ -8,13 +8,19 @@ import com.example.gbpusdpredictor.work.MarketDataWorker
 import com.example.gbpusdpredictor.work.PriceAlertPrefs
 import com.example.gbpusdpredictor.work.PriceAlertScheduler
 import com.example.gbpusdpredictor.work.PriceAlertWorker
+import com.example.gbpusdpredictor.sentiment.SentimentRepository
+import com.example.gbpusdpredictor.work.SentimentScheduler
+import com.example.gbpusdpredictor.work.SentimentWorker
 
 class GbpUsdPredictorApp : Application() {
     override fun onCreate() {
         super.onCreate()
         createDailyForecastChannel()
         createPriceAlertChannel()
+        createSentimentChannel()
         MarketDataScheduler.start(this)
+        // Daily news-sentiment fetch, only while the user has the toggle on (see SentimentScheduler).
+        if (SentimentRepository.isEnabled(this)) SentimentScheduler.start(this)
         // Only (re)start the hourly chain if the user has actually enabled alerts --
         // mirrors PriceAlertScheduler.stop() being called on disable, so a cold start
         // doesn't silently resurrect a chain the user turned off.
@@ -36,6 +42,19 @@ class GbpUsdPredictorApp : Application() {
             NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
             description = "The daily GBP/USD forecast, posted after the 21:00 UTC refresh."
+        }
+        manager.createNotificationChannel(channel)
+    }
+
+    /** Once-a-day summary, so the same IMPORTANCE_DEFAULT as the daily forecast. */
+    private fun createSentimentChannel() {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val channel = NotificationChannel(
+            SentimentWorker.NOTIFICATION_CHANNEL_ID,
+            SentimentWorker.NOTIFICATION_CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+            description = "The daily GBP/USD news-sentiment reading, posted after the morning update."
         }
         manager.createNotificationChannel(channel)
     }

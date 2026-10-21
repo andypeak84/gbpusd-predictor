@@ -19,7 +19,17 @@ import org.json.JSONObject
  */
 data class SentimentWindow(val score: Double, val label: String, val articles: Int)
 
-data class SentimentHeadline(val title: String, val source: String, val direction: Int)
+/** title is empty for a story whose headline text is not republished (BBC) -- the publisher
+ * sends our own one-line `reason` for every story, which the screen shows instead. */
+data class SentimentHeadline(
+    val title: String,
+    val source: String,
+    val direction: Int,
+    val reason: String
+) {
+    /** What to show for this story: its headline if published, otherwise our own reason. */
+    val displayText: String get() = if (title.isNotBlank()) title else reason
+}
 
 data class SentimentSignal(
     val generatedTs: Long,
@@ -56,10 +66,11 @@ object SentimentAdjustment {
      * scored articles in the window, so a single headline can't move the forecast much. */
     const val FULL_STRENGTH_ARTICLES = 5
 
-    /** Beyond this, a published reading is ignored rather than applied. One half-life of
-     * the backend's decay -- news this old has already faded to half weight in its own
-     * score, and the hourly publisher missing this many runs means something is wrong. */
-    const val MAX_AGE_HOURS = 6.0
+    /** Beyond this, a published reading is ignored rather than applied. The publisher runs
+     * once a day (06:00 UTC) and GitHub's scheduler can fire hours late, so a healthy reading
+     * can be 24h old plus a delay; 30h covers that, and a reading older than this means a
+     * whole day's run was missed, so it is dropped rather than applied. */
+    const val MAX_AGE_HOURS = 30.0
 
     /** Fractional shift to add to a forecast's % change (0.001 = +0.1%). */
     fun tilt(score: Double, articles: Int, horizonSdPct: Double?): Double {
@@ -106,7 +117,9 @@ object SentimentRepository {
         val headlines = root.optJSONArray("headlines")?.let { arr ->
             (0 until arr.length()).map { i ->
                 val h = arr.getJSONObject(i)
-                SentimentHeadline(h.optString("title"), h.optString("source"), h.optInt("direction", 0))
+                // org.json's optString returns the text "null" for a JSON null, not "".
+                fun text(key: String) = if (h.isNull(key)) "" else h.optString(key)
+                SentimentHeadline(text("title"), text("source"), h.optInt("direction", 0), text("reason"))
             }
         } ?: emptyList()
         return SentimentSignal(root.getLong("generated_ts"), window("1h"), window("6h"), window("24h"), headlines)

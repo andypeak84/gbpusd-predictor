@@ -29,6 +29,7 @@ import com.example.gbpusdpredictor.sentiment.SentimentRepository
 import com.example.gbpusdpredictor.ui.RateChartView
 import com.example.gbpusdpredictor.utils.AppClock
 import com.example.gbpusdpredictor.work.MarketDataScheduler
+import com.example.gbpusdpredictor.work.SentimentScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -485,7 +486,12 @@ class MainActivity : AppCompatActivity() {
             isChecked = SentimentRepository.isEnabled(this@MainActivity)
             setOnCheckedChangeListener { _, on ->
                 SentimentRepository.setEnabled(this@MainActivity, on)
-                if (on) refreshSentimentAsync()
+                if (on) {
+                    SentimentScheduler.startFresh(this@MainActivity)
+                    refreshSentimentAsync()
+                } else {
+                    SentimentScheduler.stop(this@MainActivity)
+                }
                 updateSentimentStatus()
                 latestData?.let { renderPrediction(it) }
             }
@@ -525,7 +531,7 @@ class MainActivity : AppCompatActivity() {
                 val fewNote = if (reading.articles < SentimentAdjustment.FULL_STRENGTH_ARTICLES) " Few articles, so the shift is scaled down." else ""
                 val headlines = reading.headlines.take(3).joinToString("") {
                     val arrow = when { it.direction > 0 -> "▲"; it.direction < 0 -> "▼"; else -> "•" }
-                    "\n$arrow ${it.source}: ${it.title}"
+                    "\n$arrow ${it.source}: ${it.displayText}"
                 }
                 "News (24h): ${reading.label}, ${"%+.2f".format(Locale.UK, reading.score)} from ${reading.articles} scored article(s), updated $age.$fewNote$headlines"
             }

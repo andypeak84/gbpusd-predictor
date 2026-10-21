@@ -4,6 +4,24 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v72 — daily sentiment feed from its own repo, with a daily notification — 2026-10-21
+
+- The sentiment publisher now lives in its own public repo, **`andypeak84/sentiment`** (was briefly in
+  Oilfetcher, since removed from there). Its GitHub Action runs **once a day at 06:00 UTC** and
+  publishes `data/sentiment.json`; the app reads it from there (`SentimentService`).
+- **Daily fetch + notification** (`SentimentScheduler` / `SentimentWorker`): at 08:00 UTC the app
+  fetches the file, refreshes the cached reading the forecast overlay uses, and posts a "GBP/USD news
+  sentiment" notification. Two hours after the Action, because GitHub's scheduler is best-effort.
+  Runs only while the "Use news sentiment" toggle is on; turning it off cancels the chain.
+- `MAX_AGE_HOURS` 6 -> 30: the file is now daily, so the old 6-hour limit would have ignored it.
+- BBC stories are published with our own one-line reason instead of BBC's headline text; the screen
+  and the notification show that reason.
+- Publisher side: same-story duplicates are merged and counted once (the Jackdaw story, carried by two
+  BBC feeds, no longer counts twice: 24h score 0.54 from 4 -> 0.41 from 3 stories).
+- Free: GitHub Actions is free for public repos; no Firebase needed.
+
+`versionCode`/`versionName` 71 -> 72.
+
 ## v71 — move the sentiment toggle to the top of the screen — 2026-10-21
 
 The v70 toggle sat just above the forecast text, below the "Amount to convert" box and off the
