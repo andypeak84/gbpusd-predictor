@@ -4,7 +4,7 @@ import com.example.gbpusdpredictor.data.AppDatabase
 import com.example.gbpusdpredictor.data.BootstrapFetchLog
 import com.example.gbpusdpredictor.data.MarketData
 import com.example.gbpusdpredictor.ml.TreeModelPredictor
-import com.example.gbpusdpredictor.network.FREDService
+import com.example.gbpusdpredictor.network.MacroApi
 import com.example.gbpusdpredictor.network.BoeApi
 import com.example.gbpusdpredictor.network.FrankfurterService
 import com.example.gbpusdpredictor.network.GiltYieldApi
@@ -36,9 +36,7 @@ enum class RefreshResult { SUCCESS, SKIPPED_ALREADY_CAPTURED, FAILED }
 
 class MarketRepository(
     private val database: AppDatabase,
-    private val fredService: FREDService,
     private val frankfurterService: FrankfurterService,
-    private val fredApiKey: String,
     private val treeModel: TreeModelPredictor
 ) {
     companion object {
@@ -226,12 +224,12 @@ class MarketRepository(
                     realizedVol(pricesUpToTarget, REALIZED_VOL_WINDOW)
                 else null
 
-            val us2yHistory = fetchFredHistory("DGS2", targetDate, purpose = "us2y")
+            val us2yHistory = fetchMacroHistory("us2y", targetDate, purpose = "us2y")
             val us2y = us2yHistory[targetDate]
             // Zero-new-fetch momentum companion -- same us2yHistory already fetched above.
             val us2yChange5d = changeNDaysAgoFromSeries(us2yHistory, targetDate, 5, toleranceDays = 2)
 
-            val vixHistory = fetchFredHistory("VIXCLS", targetDate, purpose = "vix")
+            val vixHistory = fetchMacroHistory("vix", targetDate, purpose = "vix")
             val vix = vixHistory[targetDate]
             // Zero-new-fetch momentum companion -- same vixHistory already fetched above.
             val vixChange5d = changeNDaysAgoFromSeries(vixHistory, targetDate, 5, toleranceDays = 2)
@@ -421,41 +419,47 @@ class MarketRepository(
         }
     }
 
-    /** FRED history for one series, bounded to [targetDate - lookback, targetDate] -- used
-     * for us2y and vix. Every call logged via logBootstrap; the caller only ever reads the
-     * exact targetDate entry back out, never "whatever's most recent." */
-    private suspend fun fetchFredHistory(seriesId: String, targetDate: LocalDate, purpose: String): Map<LocalDate, Double> {
-        val source = "fred_${seriesId}_history"
-        if (fredApiKey.isBlank() || fredApiKey.startsWith("MISSING_") || fredApiKey == "REPLACE_WITH_YOUR_KEY") {
-            Log.e("MarketRepository", "fetchFredHistory($seriesId) skipped: no FRED_API_KEY configured in local.properties")
-            logBootstrap(source, purpose, null, null, targetDate, emptyMap(), "ERROR: no FRED_API_KEY configured")
+    /** US 2yr yield ("us2y") or VIX ("vix") history, read from the data files the developer's GitHub
+     * Action publishes (MacroService) -- NOT from FRED directly. The old direct call needed a FRED API
+     * key compiled into the APK, which for a public Google Play release anyone could extract; the key
+     * now lives only in the Action's secret. Same [{"date","price"}] shape, parse and outcome logging
+     * as fetchOilHistoryFromGitHub. Every call is logged via logBootstrap; the caller only ever reads the
+     * exact targetDate entry (or a tolerance-bounded change) back out, never "whatever's most recent." */
+    private suspend fun fetchMacroHistory(file: String, targetDate: LocalDate, purpose: String): Map<LocalDate, Double> {
+        val source = "macro_${file}_github"
+        val raw = try {
+            retryNetwork {
+                if (file == "us2y") MacroApi.service.getUs2yRaw() else MacroApi.service.getVixRaw()
+            }
+        } catch (e: Exception) {
+            Log.e("MarketRepository", "fetchMacroHistory($file) failed", e)
+            logBootstrap(source, purpose, null, null, targetDate, emptyMap(), "ERROR: ${e.message}")
             return emptyMap()
         }
-        val start = targetDate.minusDays(HISTORY_LOOKBACK_DAYS)
-        return try {
-            val response = retryNetwork {
-                fredService.getSeries(
-                    seriesId, fredApiKey, limit = 100,
-                    observationStart = start.toString(), observationEnd = targetDate.toString()
-                )
-            }
-            val map = response.observations.mapNotNull { o ->
-                val v = o.value.toDoubleOrNull() ?: return@mapNotNull null
-                val d = try { LocalDate.parse(o.date) } catch (e: Exception) { return@mapNotNull null }
-                d to v
+        val map: Map<LocalDate, Double> = try {
+            @Suppress("DEPRECATION") // see fetchOilHistoryFromGitHub: JsonParser().parse() works across more Gson versions.
+            val root = com.google.gson.JsonParser().parse(raw)
+            if (!root.isJsonArray) emptyMap() else root.asJsonArray.mapNotNull { el ->
+                try {
+                    val entry = gson.fromJson(el, OilPriceEntry::class.java)
+                    LocalDate.parse(entry.date) to entry.price
+                } catch (e: Exception) { null }
             }.toMap()
-            val outcome = when {
-                map.isEmpty() -> "EMPTY"
-                map.containsKey(targetDate) -> "OK"
-                else -> "NO_MATCH"
-            }
-            logBootstrap(source, purpose, start.toString(), targetDate.toString(), targetDate, map, outcome)
-            map
         } catch (e: Exception) {
-            Log.e("MarketRepository", "fetchFredHistory($seriesId) failed", e)
-            logBootstrap(source, purpose, start.toString(), targetDate.toString(), targetDate, emptyMap(), "ERROR: ${e.message}")
+            Log.w("MarketRepository", "fetchMacroHistory($file): couldn't parse response -- started with: ${raw.take(80)}", e)
             emptyMap()
         }
+        val outcome = when {
+            map.isEmpty() -> "EMPTY"
+            map.containsKey(targetDate) -> "OK"
+            else -> {
+                val newest = map.keys.maxOrNull()
+                val staleness = newest?.let { AppClock.businessDaysBetween(it, targetDate) }
+                if (staleness != null) "NO_MATCH (source $staleness business day${if (staleness == 1) "" else "s"} stale)" else "NO_MATCH"
+            }
+        }
+        logBootstrap(source, purpose, null, null, targetDate, map, outcome)
+        return map
     }
 
     /** Recreated -- see this class's own history: FRED direct (worked, but the raw LEVEL

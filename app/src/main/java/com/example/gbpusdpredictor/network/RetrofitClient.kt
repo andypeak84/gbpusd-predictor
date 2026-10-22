@@ -10,10 +10,11 @@ import java.util.concurrent.TimeUnit
 object RetrofitClient {
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
+        // Release must never log: even BASIC prints every request URL, which carries query parameters.
         level = if (BuildConfig.DEBUG) {
             HttpLoggingInterceptor.Level.BODY
         } else {
-            HttpLoggingInterceptor.Level.BASIC
+            HttpLoggingInterceptor.Level.NONE
         }
     }
 

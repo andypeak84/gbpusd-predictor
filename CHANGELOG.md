@@ -4,6 +4,23 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v76 — Google Play readiness — 2026-10-22
+
+- **New application ID** `com.andypeak.gbpusdpredictor` (a separate install from the old dev build; carry forecast
+  history over with Diagnostics > Forecast history > Export/Import). Code package unchanged.
+- **Target API 36**; toolchain bumped to Kotlin 2.3.21, Room 2.8.5, AppCompat 1.7.1.
+- **No API keys in the app.** US 2yr yield and VIX are read from JSON files published daily by the Oilfetcher
+  GitHub Action (`MacroService`); `FREDService` removed. Price alerts use a free Alpha Vantage key the user enters in
+  Price Alert settings (stored on the device); alerts stay off until a key is saved.
+- **AdMob banner on every screen** (`ScreenHost`, outside the scrolling content) with Google UMP consent for UK/EEA
+  and a "Privacy & ad choices" entry. Debug builds always use Google's test ad IDs; `bundleRelease` refuses test IDs.
+- **Edge-to-edge** insets handled for all screens (forced at API 35+), dark status/nav icons.
+- **Diagnostics** screen groups Forecast history, Data fetch log, ad choices, sources/credits and disclaimer.
+  Permanent "Informational only. Not financial advice." line on the main screen.
+- **Release hardening:** upload-keystore signing (`keystore.properties`, gitignored), R8 minify + shrink with
+  `proguard-rules.pro`, HTTP logging off in release.
+- `play/` folder: privacy policy, listing text, Data safety answers, 512 icon and 1024x500 feature graphic.
+
 ## v75 — make it obvious when the forecast includes the news — 2026-10-21
 
 When the news-sentiment overlay is applied, the forecast now says so: the forecast text turns blue, gains a

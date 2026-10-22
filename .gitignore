@@ -15,3 +15,8 @@
 /ml/market_predictor_trees.json
 /ml/training_data.csv
 /ml/__pycache__/
+
+# Release signing: the upload keystore and its passwords must NEVER be committed.
+/keystore.properties
+*.jks
+*.keystore

@@ -131,7 +131,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 64, 48, 64)
         }
-        setContentView(ScrollView(this).apply { addView(container) })
+        com.example.gbpusdpredictor.ui.ScreenHost.install(this, ScrollView(this).apply { addView(container) })
 
         loadAndRender()
     }
@@ -192,6 +192,9 @@ class MainActivity : AppCompatActivity() {
             // versionName is now synced to the newgdp-vNN zip numbering this project ships
             // under (see app/build.gradle) -- bump both together on every delivered zip.
             addLine(container, "v${BuildConfig.VERSION_NAME}", 11f, Gravity.START)
+            // Permanent, on the first screen (Google Play's finance policy and basic honesty: the
+            // forecasts are about 50% right in the app's own Accuracy screen).
+            addLine(container, "Informational only. Not financial advice. Forecasts are statistical estimates and are often wrong.", 11f, Gravity.START)
             addLine(container, "Data for trading day: ${latest.date}  (fetched ${capturedAtLabel(latest)})", 13f, Gravity.START)
 
             // Nulls are real here now (see MarketData.kt) -- a chart point needs a real
@@ -729,13 +732,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         val row1 = newRow()
-        row1.addView(weightedButton("View History") { startActivity(Intent(this@MainActivity, HistoryActivity::class.java)) })
-        row1.addView(weightedButton("Bootstrap Log") { startActivity(Intent(this@MainActivity, BootstrapLogActivity::class.java)) })
+        row1.addView(weightedButton("Accuracy") { startActivity(Intent(this@MainActivity, AccuracyActivity::class.java)) })
+        row1.addView(weightedButton("Price Alerts") { startActivity(Intent(this@MainActivity, PriceAlertSettingsActivity::class.java)) })
         parent.addView(row1)
 
+        // The developer-style tools (forecast history with export/import, the data fetch log) plus the
+        // ad-consent choices and the data credits live behind this one button for the public release.
         val row2 = newRow()
-        row2.addView(weightedButton("Accuracy") { startActivity(Intent(this@MainActivity, AccuracyActivity::class.java)) })
-        row2.addView(weightedButton("Price Alerts") { startActivity(Intent(this@MainActivity, PriceAlertSettingsActivity::class.java)) })
+        row2.addView(weightedButton("Diagnostics, history & credits") { startActivity(Intent(this@MainActivity, DiagnosticsActivity::class.java)) })
         parent.addView(row2)
 
         addSpacer(parent)

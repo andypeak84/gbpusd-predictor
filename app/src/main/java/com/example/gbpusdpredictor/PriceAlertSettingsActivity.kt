@@ -33,6 +33,7 @@ import java.util.Locale
  */
 class PriceAlertSettingsActivity : AppCompatActivity() {
 
+    private lateinit var keyInput: EditText
     private lateinit var enabledCheckbox: CheckBox
     private lateinit var upperInput: EditText
     private lateinit var lowerInput: EditText
@@ -56,6 +57,19 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
             text = "Checks the live GBP/USD rate roughly every hour (Alpha Vantage), independent of the daily forecast. Set any combination of the triggers below -- leave a field blank to turn that trigger off."
             textSize = 13f
             setPadding(0, 0, 0, 24)
+        })
+
+        root.addView(TextView(this).apply { text = "Your Alpha Vantage API key (free):" })
+        keyInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            hint = "paste your key here"
+        }
+        root.addView(keyInput)
+        root.addView(TextView(this).apply {
+            text = "Get a free key at alphavantage.co/support/#api-key. It stays on this device and is only sent to Alpha Vantage. Alerts need a key; the daily forecast does not."
+            textSize = 12f
+            setPadding(0, 4, 0, 16)
+            autoLinkMask = android.text.util.Linkify.WEB_URLS
         })
 
         enabledCheckbox = CheckBox(this).apply { text = "Enable price alerts" }
@@ -99,13 +113,14 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
         statusText = TextView(this).apply { setPadding(0, 24, 0, 0); textSize = 12f }
         root.addView(statusText)
 
-        setContentView(ScrollView(this).apply { addView(root) })
+        com.example.gbpusdpredictor.ui.ScreenHost.install(this, ScrollView(this).apply { addView(root) })
 
         loadSettings()
         refreshStatus()
     }
 
     private fun loadSettings() {
+        keyInput.setText(with(PriceAlertPrefs) { alphaVantageKey })
         enabledCheckbox.isChecked = priceAlertsEnabledValue()
         upperInput.setText(upperThresholdValue()?.let { "%.4f".format(Locale.UK, it) } ?: "")
         lowerInput.setText(lowerThresholdValue()?.let { "%.4f".format(Locale.UK, it) } ?: "")
@@ -124,9 +139,15 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
         val upper = upperInput.text.toString().trim().toDoubleOrNull()
         val lower = lowerInput.text.toString().trim().toDoubleOrNull()
         val movePct = movePctInput.text.toString().trim().toDoubleOrNull()?.div(100.0)
-        val enabled = enabledCheckbox.isChecked
+        val key = keyInput.text.toString().trim()
+        val enabled = enabledCheckbox.isChecked && key.isNotEmpty()
+        if (enabledCheckbox.isChecked && key.isEmpty()) {
+            enabledCheckbox.isChecked = false
+            Toast.makeText(this, "Enter your Alpha Vantage API key to enable alerts", Toast.LENGTH_LONG).show()
+        }
 
         with(PriceAlertPrefs) {
+            alphaVantageKey = key
             priceAlertsEnabled = enabled
             upperThreshold = upper
             lowerThreshold = lower
@@ -146,7 +167,7 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
     private fun sendTestAlert() {
         CoroutineScope(Dispatchers.Main).launch {
             statusText.text = "Fetching live rate..."
-            val result = withContext(Dispatchers.IO) { runCatching { fetchLiveRate() } }
+            val result = withContext(Dispatchers.IO) { runCatching { fetchLiveRate(keyInput.text.toString().trim()) } }
             result.onSuccess { rate ->
                 postTestNotification(rate)
                 statusText.text = "Test alert sent -- live rate was %.4f.".format(Locale.UK, rate)

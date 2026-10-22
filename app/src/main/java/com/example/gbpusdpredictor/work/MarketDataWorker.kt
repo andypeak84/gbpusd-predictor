@@ -17,7 +17,6 @@ import com.example.gbpusdpredictor.R
 import com.example.gbpusdpredictor.data.AppDatabase
 import com.example.gbpusdpredictor.data.MarketData
 import com.example.gbpusdpredictor.ml.TreeModelPredictor
-import com.example.gbpusdpredictor.network.FredApi
 import com.example.gbpusdpredictor.network.FrankfurterApi
 import com.example.gbpusdpredictor.repository.MarketRepository
 import com.example.gbpusdpredictor.repository.RefreshResult
@@ -82,9 +81,7 @@ class MarketDataWorker(context: Context, params: WorkerParameters) : CoroutineWo
         val treeModel = TreeModelPredictor(applicationContext)
         val repository = MarketRepository(
             database = AppDatabase.getInstance(applicationContext),
-            fredService = FredApi.service,
             frankfurterService = FrankfurterApi.service,
-            fredApiKey = BuildConfig.FRED_API_KEY,
             treeModel = treeModel
         )
 

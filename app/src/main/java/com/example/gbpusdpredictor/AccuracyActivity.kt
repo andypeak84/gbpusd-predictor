@@ -61,7 +61,7 @@ class AccuracyActivity : AppCompatActivity() {
         val rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(HorizontalScrollView(this).apply { addView(rows) })
 
-        setContentView(ScrollView(this).apply { addView(root) })
+        com.example.gbpusdpredictor.ui.ScreenHost.install(this, ScrollView(this).apply { addView(root) })
 
         CoroutineScope(Dispatchers.Main).launch {
             val (scored, summary) = withContext(Dispatchers.IO) {

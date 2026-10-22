@@ -22,7 +22,15 @@ object PriceAlertPrefs {
     private const val KEY_LAST_FETCH_ATTEMPT_UTC = "last_fetch_attempt_utc"
     private const val KEY_LAST_FETCH_OUTCOME = "last_fetch_outcome"
 
+    private const val KEY_ALPHA_VANTAGE_KEY = "alpha_vantage_key"
+
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    // The user's own free Alpha Vantage key -- entered in settings, stored only on the device. It
+    // used to be compiled into the APK, which is unsafe for a public release.
+    var Context.alphaVantageKey: String
+        get() = prefs(this).getString(KEY_ALPHA_VANTAGE_KEY, "") ?: ""
+        set(value) = prefs(this).edit().putString(KEY_ALPHA_VANTAGE_KEY, value.trim()).apply()
 
     var Context.priceAlertsEnabled: Boolean
         get() = prefs(this).getBoolean(KEY_ENABLED, false)

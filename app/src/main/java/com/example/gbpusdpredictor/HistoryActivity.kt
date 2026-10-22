@@ -102,7 +102,7 @@ class HistoryActivity : AppCompatActivity() {
         val horizontalScroll = HorizontalScrollView(this).apply { addView(rows) }
         root.addView(horizontalScroll)
 
-        setContentView(ScrollView(this).apply { addView(root) })
+        com.example.gbpusdpredictor.ui.ScreenHost.install(this, ScrollView(this).apply { addView(root) })
 
         loadAndRenderTable()
     }

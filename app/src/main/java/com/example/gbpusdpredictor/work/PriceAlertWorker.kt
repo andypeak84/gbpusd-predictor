@@ -9,7 +9,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.example.gbpusdpredictor.BuildConfig
 import com.example.gbpusdpredictor.MainActivity
 import com.example.gbpusdpredictor.R
 import com.example.gbpusdpredictor.network.AlphaVantageApi
@@ -58,7 +57,7 @@ class PriceAlertWorker(context: Context, params: WorkerParameters) : CoroutineWo
 
         with(PriceAlertPrefs) { applicationContext.lastFetchAttemptUtc = Instant.now().toString() }
 
-        val fetchResult = runCatching { fetchLiveRate() }
+        val fetchResult = runCatching { fetchLiveRate(with(PriceAlertPrefs) { applicationContext.alphaVantageKey }) }
         val rate = fetchResult.getOrNull()
 
         with(PriceAlertPrefs) {
@@ -140,8 +139,9 @@ class PriceAlertWorker(context: Context, params: WorkerParameters) : CoroutineWo
  * a bad key, a rate-limit hit, or similar -- all of which must be checked explicitly,
  * since none of them throw and a null/blank exchangeRate would otherwise silently
  * become a NumberFormatException deep in toDouble(). */
-suspend fun fetchLiveRate(): Double {
-    val response = AlphaVantageApi.service.getExchangeRate(apiKey = BuildConfig.ALPHA_VANTAGE_API_KEY)
+suspend fun fetchLiveRate(apiKey: String): Double {
+    if (apiKey.isBlank()) throw IllegalStateException("No Alpha Vantage API key entered in Price Alert settings")
+    val response = AlphaVantageApi.service.getExchangeRate(apiKey = apiKey)
     response.errorMessage?.let { throw IllegalStateException("Alpha Vantage error: $it") }
     response.note?.let { throw IllegalStateException("Alpha Vantage rate limit: $it") }
     response.information?.let { throw IllegalStateException("Alpha Vantage: $it") }
