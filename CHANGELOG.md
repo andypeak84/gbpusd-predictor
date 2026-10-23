@@ -4,6 +4,12 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v78 — current rate on the Accuracy screen — 2026-10-23
+
+The Accuracy screen now opens with "Latest GBP/USD": the hourly Alpha Vantage reading the price-alert worker already stores on
+the phone (the user's own key, no extra call) while it is under 3 hours old, else the ECB rate via Frankfurter, plus the
+% move since the newest stored row, so the track record can be read against where the pound is now.
+
 ## v77 — fresher Brent + data upkeep — 2026-10-23
 
 - **Brent:** a daily recorder (Oilfetcher `fetch-brent-latest.yml`, weekdays 19:45 UTC) stores one OilPriceAPI Brent

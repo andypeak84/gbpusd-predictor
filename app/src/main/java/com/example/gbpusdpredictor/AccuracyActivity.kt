@@ -43,6 +43,16 @@ class AccuracyActivity : AppCompatActivity() {
             setPadding(24, 24, 24, 4)
         })
 
+        // Latest GBP/USD (ECB reference rate via Frankfurter, same source as the forecast) so the table
+        // below can be read against where the pound is NOW, not just where each forecast was scored.
+        val currentView = TextView(this).apply {
+            textSize = 14f
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(24, 0, 24, 8)
+            text = "Latest GBP/USD: checking..."
+        }
+        root.addView(currentView)
+
         val summaryView = TextView(this).apply {
             textSize = 13f
             setPadding(24, 0, 24, 8)
@@ -64,11 +74,39 @@ class AccuracyActivity : AppCompatActivity() {
         com.example.gbpusdpredictor.ui.ScreenHost.install(this, ScrollView(this).apply { addView(root) })
 
         CoroutineScope(Dispatchers.Main).launch {
-            val (scored, summary) = withContext(Dispatchers.IO) {
-                PredictionScorer.score(
-                    AppDatabase.getInstance(applicationContext).marketDao().getAllEntries()
-                )
+            val entries = withContext(Dispatchers.IO) {
+                AppDatabase.getInstance(applicationContext).marketDao().getAllEntries()
             }
+            // Preferred: the hourly Alpha Vantage reading the price-alert worker already stores on this phone
+            // (the user's own key, so no extra API call from this screen). Used only while it is fresh;
+            // otherwise the ECB reference rate (same source as the forecast) so there is always a number.
+            val hourly = with(com.example.gbpusdpredictor.work.PriceAlertPrefs) {
+                val rate = lastHourlyRate
+                val at = runCatching { java.time.Instant.parse(lastHourlyRateUtc) }.getOrNull()
+                if (rate != null && at != null && java.time.Duration.between(at, java.time.Instant.now()).toHours() < 3) rate to at else null
+            }
+            val ecb = if (hourly == null) withContext(Dispatchers.IO) {
+                runCatching { com.example.gbpusdpredictor.network.FrankfurterApi.service.getLatest() }.getOrNull()
+            } else null
+            val ecbRate = ecb?.rates?.get("USD")
+            val rate: Double? = hourly?.first ?: ecbRate
+            val lastBase = entries.filter { it.gbpUsd != null }.maxByOrNull { it.date }
+            currentView.text = if (rate == null) {
+                "Latest GBP/USD: unavailable (offline?)"
+            } else buildString {
+                val source = if (hourly != null) {
+                    "Alpha Vantage, " + java.time.format.DateTimeFormatter.ofPattern("d MMM HH:mm 'UTC'")
+                        .withZone(java.time.ZoneOffset.UTC).format(hourly.second)
+                } else "ECB rate, ${ecb?.date}"
+                append("Latest GBP/USD: ${"%.4f".format(Locale.UK, rate)} ($source)")
+                if (lastBase?.gbpUsd != null) {
+                    val pct = (rate / lastBase.gbpUsd - 1) * 100
+                    append("
+${"%+.2f%%".format(Locale.UK, pct)} since the newest stored row (${lastBase.date}, ${"%.4f".format(Locale.UK, lastBase.gbpUsd)})")
+                }
+            }
+
+            val (scored, summary) = withContext(Dispatchers.Default) { PredictionScorer.score(entries) }
 
             summaryView.text = buildString {
                 if (summary.scored == 0) {
