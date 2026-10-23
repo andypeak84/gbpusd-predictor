@@ -234,17 +234,10 @@ class MarketRepository(
             // Zero-new-fetch momentum companion -- same vixHistory already fetched above.
             val vixChange5d = changeNDaysAgoFromSeries(vixHistory, targetDate, 5, toleranceDays = 2)
 
-            // Only oilChange5d comes back from this -- see fetchOilHistoryFromGitHub's own
-            // comment for why the raw level stays dropped. changeNDaysAgoFromSeries's own
-            // 2-day tolerance absorbs whatever lag the GitHub Action's own last successful
-            // run has, independent of TARGET_LAG_BUSINESS_DAYS.
-            val oilHistoryForChangeOnly = fetchOilHistoryFromGitHub(targetDate)
-            // anchorToleranceDays=1: oil is the one source that occasionally misses
-            // targetDate by exactly one business day (e.g. a holiday) even when otherwise
-            // healthy -- see changeNDaysAgoFromSeries's own doc comment for why this is
-            // deliberately small and oil-specific, not a general fix for a genuine
-            // multi-day source outage (which should, correctly, still come back null).
-            val oilChange5d = changeNDaysAgoFromSeries(oilHistoryForChangeOnly, targetDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
+            // WTI is no longer fetched or used (v80): its EIA/FRED series runs 2-3 days stale and Brent carries
+            // the oil signal. The retrained model has no oilChange5d feature; the column stays in the
+            // table (null) so existing rows, History and export/import are unaffected.
+            val oilChange5d: Double? = null
 
             // Brent -- a second, independent oil benchmark alongside WTI (not a
             // replacement). See fetchBrentHistoryFromGitHub's own comment for why; same

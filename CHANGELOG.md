@@ -4,6 +4,16 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v80 — WTI and calendar features removed — 2026-10-23
+
+- **WTI is gone.** Its EIA/FRED series runs 2-3 days stale; Brent (which has the fresher daily recorder) carries the oil
+  signal. The model no longer has `oilChange5d`, and the app stops fetching the WTI file (the table column stays, null).
+- **Calendar features removed:** `dayOfWeek`, `monthOfYear`, `isMonthEnd` (3 years of data = each month seen 3 times, so
+  `monthOfYear` mostly memorised a calendar). 21 features, same per-horizon-group design and settings as v79.
+- Measured on the same two holdouts as v79 (direction / error): latest window 58.3% / 0.640% (v79: 61.5% / 0.629%),
+  earlier window 45.1% / 0.899% (v79: 42.6% / 0.921%). Removing WTI cost about 2 points on the latest window, mainly in the
+  4-7 day group; the owner chose to drop it anyway because the data is stale.
+
 ## v79 — retrained model, one model per horizon group — 2026-10-23
 
 - **Retrained** on data to 21 Oct 2026 (3-year window, same features and settings: 300 trees, depth 4, 50 rows/leaf).
