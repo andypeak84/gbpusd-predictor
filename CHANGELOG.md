@@ -4,6 +4,16 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v79 — retrained model, one model per horizon group — 2026-10-23
+
+- **Retrained** on data to 21 Oct 2026 (3-year window, same features and settings: 300 trees, depth 4, 50 rows/leaf).
+- **Per-horizon-group models** (`ml/train_grouped.py`): separate tree ensembles for 1-3, 4-7 and 8-14 days instead of one
+  pooled model; `TreeModelPredictor` picks the group by `daysAhead` (old single-model files still load).
+  Same 2026 holdout (6 May-21 Oct, 1,591 rows): direction 61.5% vs 54.6% for the previous shipped model and 57.8% for a
+  plain retrain; error about 0.63% vs 0.65%. An earlier holdout (15 Dec 2025-6 May 2026) stayed below 50% for every
+  design (42.6% grouped vs 42.1% pooled), so the edge is not stable; the 1-day call is no better than "no change".
+- Old model backed up outside the repo; mini-budget-2022 stress test (42.5%) was set aside by the owner for this release.
+
 ## v78 — current rate on the Accuracy screen — 2026-10-23
 
 The Accuracy screen now opens with "Latest GBP/USD": the hourly Alpha Vantage reading the price-alert worker already stores on

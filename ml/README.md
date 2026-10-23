@@ -273,3 +273,13 @@ full day-by-day path across the window. The app compares "now" vs. "predicted in
 days" to suggest transfer-now vs. wait. It won't tell you "day 6 is the best day" within
 the window — that would need a sequence model, a bigger step up in complexity. Worth
 doing later if the simple version proves useful.
+
+
+## Per-horizon-group models (v79)
+
+`train_grouped.py` trains one ensemble per horizon group (1-3, 4-7, 8-14 days) on the frame `train_model.py` saved
+as `training_data.csv`, and writes ONE `market_predictor_trees.json` with a `models` list (each entry:
+`horizons`, `bias`, `trees`) plus merged `horizon_baseline` / `horizon_sd` / `horizon_mae`. Run `train_model.py` first
+(it writes training_data.csv), then `python train_grouped.py --training-csv training_data.csv`, and copy the result to
+`app/src/main/assets/`. ydf has no wheel for Python 3.14: the repo has been trained with an embeddable Python 3.12 +
+ydf 0.8.0 (see the CHANGELOG v79 note for the measured results on two holdout windows).

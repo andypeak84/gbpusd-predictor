@@ -50,8 +50,12 @@ class TreeModelPredictor(context: Context) {
         val right: Node? = null
     )
 
-    private var bias: Double = 0.0
-    private var trees: List<Node> = emptyList()
+    // One tree ensemble per horizon group (ml/train_grouped.py: days 1-3, 4-7, 8-14). A legacy
+    // single-model file (top-level "trees"/"bias", no "models" block) loads as ONE group with
+    // empty `horizons`, meaning "every horizon", so older model files still work unchanged.
+    private class Group(val horizons: Set<Int>, val bias: Double, val trees: List<Node>)
+
+    private var groups: List<Group> = emptyList()
     // Per-horizon average return, subtracted out during training so the trees learn only
     // genuine conditional signal instead of mechanically reproducing whatever drift the
     // training window's history happened to average out to (see train_model.py's
@@ -80,15 +84,23 @@ class TreeModelPredictor(context: Context) {
     // with, so multiplying by 1.0 is the correct no-op, not an approximation).
     private var horizonSd: Map<String, Double> = emptyMap()
 
-    val isAvailable: Boolean get() = trees.isNotEmpty()
+    val isAvailable: Boolean get() = groups.isNotEmpty()
 
     init {
         try {
             val json = context.assets.open(MODEL_FILE).bufferedReader().use { it.readText() }
             val root = JSONObject(json)
-            bias = root.getDouble("bias")
-            val treesArray = root.getJSONArray("trees")
-            trees = (0 until treesArray.length()).map { parseNode(treesArray.getJSONObject(it)) }
+            fun parseTrees(arr: org.json.JSONArray) = (0 until arr.length()).map { parseNode(arr.getJSONObject(it)) }
+            val modelsArray = root.optJSONArray("models")
+            groups = if (modelsArray != null) {
+                (0 until modelsArray.length()).map { i ->
+                    val g = modelsArray.getJSONObject(i)
+                    val hs = g.getJSONArray("horizons")
+                    Group((0 until hs.length()).map { hs.getInt(it) }.toSet(), g.getDouble("bias"), parseTrees(g.getJSONArray("trees")))
+                }
+            } else {
+                listOf(Group(emptySet(), root.getDouble("bias"), parseTrees(root.getJSONArray("trees"))))
+            }
             horizonBaseline = root.optJSONObject("horizon_baseline")?.let { obj ->
                 obj.keys().asSequence().associateWith { key -> obj.getDouble(key) }
             } ?: emptyMap()
@@ -98,7 +110,7 @@ class TreeModelPredictor(context: Context) {
             horizonSd = root.optJSONObject("horizon_sd")?.let { obj ->
                 obj.keys().asSequence().associateWith { key -> obj.getDouble(key) }
             } ?: emptyMap()
-            Log.i(TAG, "Loaded $MODEL_FILE: ${trees.size} trees, bias=$bias, ${horizonBaseline.size} horizon baseline(s), ${horizonMae.size} horizon MAE(s), ${horizonSd.size} horizon sd(s)")
+            Log.i(TAG, "Loaded $MODEL_FILE: ${groups.size} model group(s), ${groups.sumOf { it.trees.size }} trees, ${horizonBaseline.size} horizon baseline(s), ${horizonMae.size} horizon MAE(s), ${horizonSd.size} horizon sd(s)")
         } catch (e: Exception) {
             // Most common cause: market_predictor_trees.json hasn't been generated/copied
             // into app/src/main/assets/ yet. See ml/README.md.
@@ -147,7 +159,11 @@ class TreeModelPredictor(context: Context) {
             // 1.0 (no-op) when this model has no horizon_sd block, or no entry for this
             // specific horizon -- see horizonSd's own declaration.
             val sd = daysAheadKey?.let { horizonSd[it] } ?: 1.0
-            baseline + sd * (bias + trees.sumOf { walk(it, features) })
+            // The group trained for this horizon; a legacy single-model file has one group for all.
+            val group = daysAheadKey?.toInt()?.let { d -> groups.firstOrNull { d in it.horizons } }
+                ?: groups.firstOrNull { it.horizons.isEmpty() }
+                ?: return null
+            baseline + sd * (group.bias + group.trees.sumOf { walk(it, features) })
         } catch (e: Exception) {
             Log.e(TAG, "predictChangePct failed", e)
             null

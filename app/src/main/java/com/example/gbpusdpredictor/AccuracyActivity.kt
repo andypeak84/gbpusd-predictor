@@ -101,8 +101,7 @@ class AccuracyActivity : AppCompatActivity() {
                 append("Latest GBP/USD: ${"%.4f".format(Locale.UK, rate)} ($source)")
                 if (lastBase?.gbpUsd != null) {
                     val pct = (rate / lastBase.gbpUsd - 1) * 100
-                    append("
-${"%+.2f%%".format(Locale.UK, pct)} since the newest stored row (${lastBase.date}, ${"%.4f".format(Locale.UK, lastBase.gbpUsd)})")
+                    append("\n${"%+.2f%%".format(Locale.UK, pct)} since the newest stored row (${lastBase.date}, ${"%.4f".format(Locale.UK, lastBase.gbpUsd)})")
                 }
             }
 
