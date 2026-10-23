@@ -128,7 +128,7 @@ class HistoryActivity : AppCompatActivity() {
 
             addRow(
                 rows,
-                listOf("Date", "Captured (UTC)", "GBP/USD", "5d chg", "Predicted", "Pred chg", "UK 2yr yield", "US 2y", "VIX", "Oil (WTI) 5d chg", "RSI(14)", "GBP/EUR 5d", "EUR/USD 5d", "USD basket 5d", "Realised vol 10d", "US 2y 5d chg", "VIX 5d chg", "GBP/USD 1d", "USD basket 1d", "Day of wk", "Month", "Month end", "Oil (Brent) 5d chg", "GBP/USD 10d", "GBP/USD 20d", "Spread 10d"),
+                listOf("Date", "Captured (UTC)", "GBP/USD", "5d chg", "Predicted", "Pred chg", "UK 2yr yield", "US 2y", "VIX", "RSI(14)", "GBP/EUR 5d", "EUR/USD 5d", "USD basket 5d", "Realised vol 10d", "US 2y 5d chg", "VIX 5d chg", "GBP/USD 1d", "USD basket 1d", "Oil (Brent) 5d chg", "GBP/USD 10d", "GBP/USD 20d", "Spread 10d"),
                 bold = true
             )
             all.forEach { d ->
@@ -144,7 +144,6 @@ class HistoryActivity : AppCompatActivity() {
                         fmt(d.ukRate, "%.3f"),
                         fmt(d.us2y, "%.3f"),
                         fmt(d.vix, "%.2f"),
-                        d.oilChange5d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
                         fmt(d.rsi14, "%.1f"),
                         d.gbpEurChange5d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
                         d.eurUsdChange5d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
@@ -154,9 +153,6 @@ class HistoryActivity : AppCompatActivity() {
                         d.vixChange5d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
                         d.gbpUsdChange1d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
                         d.usdBasketChange1d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
-                        fmt(d.dayOfWeek, "%.0f"),
-                        fmt(d.monthOfYear, "%.0f"),
-                        fmt(d.isMonthEnd, "%.0f"),
                         d.brentChange5d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
                         d.gbpUsdChange10d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
                         d.gbpUsdChange20d?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",

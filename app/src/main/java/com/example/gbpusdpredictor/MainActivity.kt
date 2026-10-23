@@ -360,7 +360,6 @@ class MainActivity : AppCompatActivity() {
         addLine(detailSection, "US 2yr yield: ${fmt(latest.us2y, "%.3f")}%", 14f, Gravity.START)
         addLine(detailSection, "Spread (UK - US 2yr): ${fmt(latest.spread2y, "%.3f")}", 14f, Gravity.START)
         addLine(detailSection, "VIX: ${fmt(latest.vix, "%.2f")}", 14f, Gravity.START)
-        addLine(detailSection, "Oil (WTI) 5d change: ${fmtPct(latest.oilChange5d)}", 14f, Gravity.START)
         addLine(detailSection, "Oil (Brent) 5d change: ${fmtPct(latest.brentChange5d)}", 14f, Gravity.START)
         addLine(detailSection, "GBP/USD 5d change: ${fmtPct(latest.gbpUsdChange5d)}", 14f, Gravity.START)
         addLine(detailSection, "GBP/EUR 5d change: ${fmtPct(latest.gbpEurChange5d)}", 14f, Gravity.START)
@@ -375,9 +374,6 @@ class MainActivity : AppCompatActivity() {
         addLine(detailSection, "GBP/USD 20d change: ${fmtPct(latest.gbpUsdChange20d)}", 14f, Gravity.START)
         addLine(detailSection, "Spread (UK-US 2yr) 10d change: ${fmtPct(latest.spread2yChange10d)}", 14f, Gravity.START)
         addLine(detailSection, "USD basket 1d change (vs EUR/JPY/CAD/CHF): ${fmtPct(latest.usdBasketChange1d)}", 14f, Gravity.START)
-        addLine(detailSection, "Day of week: ${fmt(latest.dayOfWeek, "%.0f")}", 14f, Gravity.START)
-        addLine(detailSection, "Month: ${fmt(latest.monthOfYear, "%.0f")}", 14f, Gravity.START)
-        addLine(detailSection, "Month end (next business day): ${fmt(latest.isMonthEnd, "%.0f")}", 14f, Gravity.START)
         addLine(
             detailSection,
             "A \u201c—\u201d above means this field had no real, date-verified reading for ${latest.date} -- it was left out of the prediction (the model handles missing features natively), not filled in with a guess. See Bootstrap Log for why.",

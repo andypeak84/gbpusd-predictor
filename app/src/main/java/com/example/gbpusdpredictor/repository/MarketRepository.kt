@@ -132,6 +132,19 @@ class MarketRepository(
 
     private data class GiltYieldEntry(val date: String, val yield_2y: Double)
     private data class OilPriceEntry(val date: String, val price: Double)
+
+    // Built from the JSON tree by hand instead of gson.fromJson(el, Entry::class.java): reflection into these
+    // private nested classes returned empty results in the minified release build (v76-v80 logged EMPTY for every
+    // GitHub-hosted series, leaving us2y/VIX/UK yield/Brent null), while the tree API has no reflection to strip.
+    private fun oilEntryOf(el: com.google.gson.JsonElement): OilPriceEntry? = try {
+        val o = el.asJsonObject
+        OilPriceEntry(o.get("date").asString, o.get("price").asDouble)
+    } catch (e: Exception) { null }
+
+    private fun giltEntryOf(el: com.google.gson.JsonElement): GiltYieldEntry? = try {
+        val o = el.asJsonObject
+        GiltYieldEntry(o.get("date").asString, o.get("yield_2y").asDouble)
+    } catch (e: Exception) { null }
     private val gson = com.google.gson.Gson()
 
     /** A handful of fetches have been observed failing with a DNS resolution error
@@ -444,7 +457,7 @@ class MarketRepository(
             val root = com.google.gson.JsonParser().parse(raw)
             if (!root.isJsonArray) emptyMap() else root.asJsonArray.mapNotNull { el ->
                 try {
-                    val entry = gson.fromJson(el, OilPriceEntry::class.java)
+                    val entry = oilEntryOf(el) ?: return@mapNotNull null
                     LocalDate.parse(entry.date) to entry.price
                 } catch (e: Exception) { null }
             }.toMap()
@@ -452,6 +465,7 @@ class MarketRepository(
             Log.w("MarketRepository", "fetchMacroHistory($file): couldn't parse response -- started with: ${raw.take(80)}", e)
             emptyMap()
         }
+        if (map.isEmpty()) Log.w("MarketRepository", "fetchMacroHistory($file): parsed 0 observations -- raw started with: ${raw.take(80)}")
         val outcome = when {
             map.isEmpty() -> "EMPTY"
             map.containsKey(targetDate) -> "OK"
@@ -493,10 +507,10 @@ class MarketRepository(
             val root = com.google.gson.JsonParser().parse(raw)
             when {
                 root.isJsonArray -> root.asJsonArray.mapNotNull { el ->
-                    try { gson.fromJson(el, OilPriceEntry::class.java) } catch (e: Exception) { null }
+                    try { oilEntryOf(el) } catch (e: Exception) { null }
                 }
                 root.isJsonObject -> listOfNotNull(
-                    try { gson.fromJson(root, OilPriceEntry::class.java) } catch (e: Exception) { null }
+                    try { oilEntryOf(root) } catch (e: Exception) { null }
                 )
                 else -> emptyList()
             }
@@ -556,10 +570,10 @@ class MarketRepository(
             val root = com.google.gson.JsonParser().parse(raw)
             when {
                 root.isJsonArray -> root.asJsonArray.mapNotNull { el ->
-                    try { gson.fromJson(el, OilPriceEntry::class.java) } catch (e: Exception) { null }
+                    try { oilEntryOf(el) } catch (e: Exception) { null }
                 }
                 root.isJsonObject -> listOfNotNull(
-                    try { gson.fromJson(root, OilPriceEntry::class.java) } catch (e: Exception) { null }
+                    try { oilEntryOf(root) } catch (e: Exception) { null }
                 )
                 else -> emptyList()
             }
@@ -686,10 +700,10 @@ class MarketRepository(
             val root = com.google.gson.JsonParser().parse(raw)
             when {
                 root.isJsonArray -> root.asJsonArray.mapNotNull { el ->
-                    try { gson.fromJson(el, GiltYieldEntry::class.java) } catch (e: Exception) { null }
+                    try { giltEntryOf(el) } catch (e: Exception) { null }
                 }
                 root.isJsonObject -> listOfNotNull(
-                    try { gson.fromJson(root, GiltYieldEntry::class.java) } catch (e: Exception) { null }
+                    try { giltEntryOf(root) } catch (e: Exception) { null }
                 )
                 else -> emptyList()
             }

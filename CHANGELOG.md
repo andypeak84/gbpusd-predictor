@@ -4,6 +4,19 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v82 — remove WTI and calendar rows from the screens — 2026-10-23
+
+The main-screen "Features behind this prediction" list and the History table no longer show Oil (WTI) 5d, day of week,
+month or month-end (the v80 model does not use them); Diagnostics sources now lists Brent only (EIA, FRED, OilPriceAPI).
+The stored columns remain (null for new rows), so old rows and export/import are unaffected.
+
+## v81 — fix: GitHub-hosted data parsed to nothing in the release build — 2026-10-23
+
+The data fetch log showed EMPTY (0 observations) for us2y, vix, brent, oil and the UK 2yr gilt on every release-build refresh,
+so those features (and their 5-day changes) were null in the stored rows. The five series were parsed with
+`gson.fromJson(el, PrivateNestedClass::class.java)`, which returned nothing under R8; they are now read from the JSON tree
+by hand (no reflection). Also logs the start of the response when a series parses to zero observations.
+
 ## v80 — WTI and calendar features removed — 2026-10-23
 
 - **WTI is gone.** Its EIA/FRED series runs 2-3 days stale; Brent (which has the fresher daily recorder) carries the oil
