@@ -250,7 +250,13 @@ class MarketRepository(
             // replacement). See fetchBrentHistoryFromGitHub's own comment for why; same
             // fetch/tolerance pattern as oilChange5d exactly.
             val brentHistoryForChangeOnly = fetchBrentHistoryFromGitHub(targetDate)
-            val brentChange5d = changeNDaysAgoFromSeries(brentHistoryForChangeOnly, targetDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
+            // Prefer the fresher daily Brent series (brent-latest.json) once it has enough history for
+            // its OWN 5-day change (it started 2026-10-23, so ~6 business days of readings are needed;
+            // before that this is null). The two series are never mixed within one change, since the
+            // futures price and EIA's spot assessment differ by a basis. EIA stays as the fallback.
+            val brentLatestHistory = fetchMacroHistory("brent-latest", targetDate, purpose = "brentChange5d (fresher source)")
+            val brentChange5d = changeNDaysAgoFromSeries(brentLatestHistory, targetDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
+                ?: changeNDaysAgoFromSeries(brentHistoryForChangeOnly, targetDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
 
             val giltHistory = fetchGiltYieldHistory(targetDate)
             // fetchUkRateForDate (direct BoE, Bank Rate not gilt yield -- see its own
@@ -429,7 +435,11 @@ class MarketRepository(
         val source = "macro_${file}_github"
         val raw = try {
             retryNetwork {
-                if (file == "us2y") MacroApi.service.getUs2yRaw() else MacroApi.service.getVixRaw()
+                when (file) {
+                    "us2y" -> MacroApi.service.getUs2yRaw()
+                    "brent-latest" -> MacroApi.service.getBrentLatestRaw()
+                    else -> MacroApi.service.getVixRaw()
+                }
             }
         } catch (e: Exception) {
             Log.e("MarketRepository", "fetchMacroHistory($file) failed", e)

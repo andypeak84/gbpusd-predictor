@@ -24,6 +24,14 @@ interface MacroService {
     @Headers("Cache-Control: no-cache")
     @GET("andypeak84/Oilfetcher/main/data/vix.json")
     suspend fun getVixRaw(@Query("cacheBust") cacheBust: Long = System.currentTimeMillis()): String
+
+    // One Brent reading per weekday (OilPriceAPI, ICE front-month futures, taken ~19:45 UTC by
+    // fetch-brent-latest.yml). Fresher than the EIA series in brent-price.json, which runs 2-3 days
+    // behind, but a different measure and only a few weeks old, so MarketRepository uses it only once it
+    // holds enough days to compute a 5-day change on its own (never mixed into the EIA series).
+    @Headers("Cache-Control: no-cache")
+    @GET("andypeak84/Oilfetcher/main/data/brent-latest.json")
+    suspend fun getBrentLatestRaw(@Query("cacheBust") cacheBust: Long = System.currentTimeMillis()): String
 }
 
 object MacroApi {

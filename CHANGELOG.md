@@ -4,6 +4,15 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v77 — fresher Brent + data upkeep — 2026-10-23
+
+- **Brent:** a daily recorder (Oilfetcher `fetch-brent-latest.yml`, weekdays 19:45 UTC) stores one OilPriceAPI Brent
+  reading a day in `data/brent-latest.json`. The app uses it for `brentChange5d` once it holds enough history for its own
+  5-day change (first possible ~30 Oct 2026); until then it falls back to the EIA series (2-3 days behind). The two
+  series are never mixed inside one change (futures vs spot basis).
+- **VIX / US 2yr:** the macro Action runs 4x a day (Mon-Sat) and retries FRED timeouts, so VIX is at most one day behind.
+- Diagnostics wording fixed (headline text is now shown with links to the publisher).
+
 ## v76 — Google Play readiness — 2026-10-22
 
 - **New application ID** `com.andypeak.gbpusdpredictor` (a separate install from the old dev build; carry forecast

@@ -68,7 +68,7 @@ class DiagnosticsActivity : AppCompatActivity() {
 • VIX and other US market series: this product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.
 • Crude oil (WTI and Brent): U.S. Energy Information Administration (EIA) and FRED.
 • UK Bank Rate and gilt yields: Bank of England, published under the Open Government Licence.
-• News sentiment: headlines from the Bank of England, the Federal Reserve and other public news feeds, scored by the app's author using hand-written rules. Third-party headline text is not republished.
+• News sentiment: headlines from the Bank of England, the Federal Reserve and other public news feeds, scored by the app's author using hand-written rules. Headline text and links belong to their publishers and are shown with a link to the original.
 
 Important
 
