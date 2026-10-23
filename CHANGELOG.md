@@ -4,6 +4,11 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v83 — Brent source credited as OilPriceAPI — 2026-10-23
+
+Diagnostics sources and the Play listing now name OilPriceAPI (https://www.oilpriceapi.com/) as the Brent source, with the
+EIA series as the fallback. `data/brent-latest.json` in Oilfetcher is rebuilt from OilPriceAPI's own history (no EIA values).
+
 ## v82 — remove WTI and calendar rows from the screens — 2026-10-23
 
 The main-screen "Features behind this prediction" list and the History table no longer show Oil (WTI) 5d, day of week,

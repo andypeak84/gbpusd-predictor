@@ -66,7 +66,7 @@ class DiagnosticsActivity : AppCompatActivity() {
 • Exchange rates (GBP/USD and the other currency pairs): European Central Bank reference rates, via Frankfurter (frankfurter.dev).
 • US 2-year Treasury yield: U.S. Department of the Treasury, daily par yield curve.
 • VIX and other US market series: this product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.
-• Crude oil (Brent): U.S. Energy Information Administration (EIA), FRED and OilPriceAPI.
+• Crude oil (Brent): OilPriceAPI (https://www.oilpriceapi.com/); the U.S. Energy Information Administration (EIA) series is used as a fallback.
 • UK Bank Rate and gilt yields: Bank of England, published under the Open Government Licence.
 • News sentiment: headlines from the Bank of England, the Federal Reserve and other public news feeds, scored by the app's author using hand-written rules. Headline text and links belong to their publishers and are shown with a link to the original.
 

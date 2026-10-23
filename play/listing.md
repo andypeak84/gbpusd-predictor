@@ -35,8 +35,8 @@ Past accuracy does not predict future results. Do not make financial decisions b
 Contains ads (Google AdMob). In the UK and EEA you are asked for consent first.
 
 Data sources: European Central Bank reference rates (via Frankfurter), US Treasury, FRED (this product uses the FRED API
-but is not endorsed or certified by the Federal Reserve Bank of St. Louis), US Energy Information Administration,
-Bank of England.
+but is not endorsed or certified by the Federal Reserve Bank of St. Louis), OilPriceAPI (www.oilpriceapi.com) for Brent crude with the
+US Energy Information Administration as a fallback, Bank of England.
 
 ## What's new (first release)
 First public release.
