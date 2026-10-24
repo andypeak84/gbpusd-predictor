@@ -209,11 +209,20 @@ class HistoryActivity : AppCompatActivity() {
                     val payload = gson.fromJson(root, BackupPayload::class.java)
                         ?: throw IllegalStateException("File doesn't look like a valid backup")
 
-                    AppDatabase.getInstance(applicationContext).marketDao().insertAll(payload.marketData)
+                    // Each exported row carries its database id, so inserting it as-is collided with any
+                    // row already here ("UNIQUE constraint failed: market_data.id") and aborted the whole
+                    // import. Rows get a fresh id instead, and a date this install already has is skipped
+                    // (the row already here wins), so importing the same file twice adds nothing.
+                    val dao = AppDatabase.getInstance(applicationContext).marketDao()
+                    val have = dao.getAllEntries().map { it.date }.toSet()
+                    val fresh = payload.marketData.filter { it.date !in have }.distinctBy { it.date }.map { it.copy(id = 0) }
+                    dao.insertAll(fresh)
 
-                    payload.marketData.size
+                    fresh.size to payload.marketData.size - fresh.size
                 }
-                Toast.makeText(this@HistoryActivity, "Imported $restoredCount row(s)", Toast.LENGTH_SHORT).show()
+                val (added, skipped) = restoredCount
+                val msg = if (skipped > 0) "Imported $added row(s), skipped $skipped already present" else "Imported $added row(s)"
+                Toast.makeText(this@HistoryActivity, msg, Toast.LENGTH_SHORT).show()
                 loadAndRenderTable()
             } catch (e: Exception) {
                 Toast.makeText(this@HistoryActivity, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()

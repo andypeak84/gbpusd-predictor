@@ -70,7 +70,14 @@ class MarketRepository(
         // specifically so that's a one-line change.
         // Public so MainActivity's staleness check can measure the newest stored row
         // against the date a refresh should have reached by now, using the same lag.
-        const val TARGET_LAG_BUSINESS_DAYS = 2
+        // 1 since v84 (was 2): every source the model uses now has the previous business day by the 21:00 UTC
+        // refresh -- ECB same day, US Treasury the same evening, the gilt fetcher 17:45 UTC, Brent recorded
+        // 19:45 UTC, VIX checked four times a day up to 20:15 UTC. The 2-day lag existed for FRED's slower
+        // US yield / oil series, which the app no longer reads (VIX can still miss a day: it is then null).
+        const val TARGET_LAG_BUSINESS_DAYS = 1
+
+        // How many business days before the target a refresh looks back for missing rows to fill in.
+        const val CATCH_UP_BUSINESS_DAYS = 10
 
         // "It will predict the following day" -- the app's single daily refresh captures
         // AppClock.previousBusinessDay()'s fully-settled data, and daysAhead=1 from that
@@ -182,9 +189,34 @@ class MarketRepository(
         throw lastError!!
     }
 
+    /**
+     * Captures the target trading day AND any of the previous CATCH_UP_BUSINESS_DAYS that have no row
+     * yet (oldest first). Before v84 a run only ever captured one date, so any day the phone missed
+     * (asleep, offline, app reinstalled) stayed missing for good, and the Accuracy screen jumped over it.
+     * Every date is fetched date-matched exactly as before; dates already captured are skipped.
+     * Only the target date's own outcome can make the run FAILED (and trigger a worker retry): a past
+     * day with no data at all (a bank holiday) must not make every future run "fail".
+     */
     suspend fun refreshData(): RefreshResult = withContext(Dispatchers.IO) {
+        val target = AppClock.businessDaysBack(AppClock.today(), TARGET_LAG_BUSINESS_DAYS)
+        val dates = generateSequence(target) { AppClock.businessDaysBack(it, 1) }
+            .take(CATCH_UP_BUSINESS_DAYS + 1).toList().reversed()
+        var anyNew = false
+        var targetResult = RefreshResult.SKIPPED_ALREADY_CAPTURED
+        for (d in dates) {
+            val r = captureDate(d)
+            if (r == RefreshResult.SUCCESS) anyNew = true
+            if (d == target) targetResult = r
+        }
+        when {
+            targetResult == RefreshResult.FAILED -> RefreshResult.FAILED
+            anyNew -> RefreshResult.SUCCESS
+            else -> RefreshResult.SKIPPED_ALREADY_CAPTURED
+        }
+    }
+
+    private suspend fun captureDate(targetDate: LocalDate): RefreshResult = withContext(Dispatchers.IO) {
         try {
-            val targetDate = AppClock.businessDaysBack(AppClock.today(), TARGET_LAG_BUSINESS_DAYS)
             val targetDateStr = targetDate.toString()
 
             // One row per trading day, ever. If this date's already captured -- by an
@@ -194,7 +226,11 @@ class MarketRepository(
             // already captured, finds that row, and skips. No day-of-week branching
             // needed anywhere.
             val existing = database.marketDao().getRowsForDate(targetDateStr)
-            if (existing.isNotEmpty()) {
+            // A recent row captured before all its sources had published (e.g. a Saturday-morning run:
+            // Friday's gilt yield and VIX are not out yet) is fetched again; it is replaced further down
+            // only if the new fetch has MORE core fields. A complete row is never touched.
+            val existingCore = existing.maxOfOrNull { r -> listOf(r.gbpUsd, r.us2y, r.ukRate, r.vix).count { it != null } }
+            if (existingCore != null && existingCore >= 4) {
                 Log.i("MarketRepository", "refreshData: $targetDateStr already captured (at ${existing.first().capturedAtUtc}) -- nothing to do.")
                 return@withContext RefreshResult.SKIPPED_ALREADY_CAPTURED
             }
@@ -387,11 +423,19 @@ class MarketRepository(
                 Log.w("MarketRepository", "No forecast: tree model unavailable (see TreeModelPredictor logs)")
             }
 
+            if (existingCore != null) {
+                if (corePresent <= existingCore) {
+                    Log.i("MarketRepository", "refreshData: $targetDateStr re-fetched, still $corePresent/4 core fields -- keeping the existing row.")
+                    return@withContext RefreshResult.SKIPPED_ALREADY_CAPTURED
+                }
+                Log.i("MarketRepository", "refreshData: $targetDateStr now $corePresent/4 core fields (was $existingCore) -- replacing the row.")
+                database.marketDao().deleteForDate(targetDateStr)
+            }
             database.marketDao().insert(marketData.copy(predicted14dRate = predicted14dRate, predicted14dChangePct = predictedChangePct))
 
             RefreshResult.SUCCESS
         } catch (e: Exception) {
-            Log.e("MarketRepository", "refreshData failed", e)
+            Log.e("MarketRepository", "captureDate($targetDate) failed", e)
             RefreshResult.FAILED
         }
     }

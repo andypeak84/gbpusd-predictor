@@ -4,6 +4,23 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v84 — import fix; refresh catches up missed days; 1-day lag — 2026-10-24
+
+- **Missed days are filled in.** A refresh used to capture only one date, so any day the phone missed stayed missing and the
+  Accuracy screen skipped it (19 Oct jumped to 21 Oct). Each refresh now also captures any of the previous 10 business days
+  that have no row, date-matched as before.
+- **Lag cut from 2 business days to 1.** Every source now has the previous business day by the 21:00 UTC refresh (the 2-day
+  lag was for FRED's slower US-yield/oil series, no longer used), so the newest row is yesterday, not the day before.
+- **Incomplete recent rows are re-fetched.** A row captured before every source had published (e.g. Friday's row on a
+  Saturday morning, before that day's gilt yield and VIX are out) is fetched again on later runs within the 10-day window
+  and replaced only if the new fetch has more of the four core fields. Complete rows are never touched.
+
+### Import fix
+
+Import inserted the exported rows with their own database ids, so on an install with any row already present it failed with
+"UNIQUE constraint failed: market_data.id" and imported nothing. Imported rows now get fresh ids, and dates already present
+are skipped (the existing row wins); the toast says how many were added and skipped.
+
 ## v83 — Brent source credited as OilPriceAPI — 2026-10-23
 
 Diagnostics sources and the Play listing now name OilPriceAPI (https://www.oilpriceapi.com/) as the Brent source, with the

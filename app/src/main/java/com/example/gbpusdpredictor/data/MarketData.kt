@@ -141,6 +141,11 @@ interface MarketDao {
     @Insert
     suspend fun insertAll(rows: List<MarketData>)
 
+    // Used only to replace a recent row that was captured before all its sources had published
+    // (see MarketRepository.captureDate): the replacement is written only if it is more complete.
+    @Query("DELETE FROM market_data WHERE date = :date")
+    suspend fun deleteForDate(date: String)
+
     @Query("SELECT * FROM market_data ORDER BY capturedAtUtc DESC LIMIT :limit")
     suspend fun getRecentEntries(limit: Int): List<MarketData>
 
