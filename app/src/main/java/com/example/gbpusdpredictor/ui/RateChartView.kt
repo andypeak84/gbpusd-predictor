@@ -71,89 +71,111 @@ class RateChartView @JvmOverloads constructor(
         invalidate()
     }
 
+    // Only the most recent trading days are drawn: plotting everything since September on one time scale made the
+    // forecast segment (1 day out of ~40) a stub and squashed day-to-day moves flat.
+    private val historyWindow = 30
+    // Share of the chart width reserved for the forecast, whatever the horizon, so even a 1-day forecast is clearly
+    // visible. History is spaced by trading day inside the rest; forecasts are spaced by calendar day inside this zone.
+    private val forecastFraction = 0.30f
+
+    private val zonePaint = Paint().apply { color = Color.parseColor("#F1F5FB"); style = Paint.Style.FILL }
+    private val refLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#9AA4B2"); strokeWidth = 2f; style = Paint.Style.STROKE
+        pathEffect = DashPathEffect(floatArrayOf(8f, 8f), 0f)
+    }
+    private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
+    private val boxStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3f }
+    private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 30f; isFakeBoldText = true }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        if (historical.size < 2) {
+        val hist = historical.takeLast(historyWindow)
+        if (hist.size < 2) {
             canvas.drawText("Not enough data yet for a chart", width / 2f, height / 2f, emptyStatePaint)
             return
         }
 
         val paddingLeft = 100f
-        val paddingRight = 20f
+        val paddingRight = 16f
         val paddingTop = 20f
         val paddingBottom = 50f
         val chartWidth = width - paddingLeft - paddingRight
         val chartHeight = height - paddingTop - paddingBottom
+        val preds = predictedLines.sortedBy { it.point.date }
+        val forecastW = if (preds.isEmpty()) 0f else chartWidth * forecastFraction
+        val histW = chartWidth - forecastW
+        val histEndX = paddingLeft + histW
 
-        val allPoints = historical + predictedLines.map { it.point }
-        val minRate = allPoints.minOf { it.rate }
-        val maxRate = allPoints.maxOf { it.rate }
+        val allRates = hist.map { it.rate } + preds.map { it.point.rate }
+        val minRate = allRates.min()
+        val maxRate = allRates.max()
         val rateRange = (maxRate - minRate).let { if (it > 0.0001) it else 0.01 }
         val yPad = rateRange * 0.15
 
-        val firstDate = historical.first().date
-        val lastDate = predictedLines.maxOfOrNull { it.point.date } ?: historical.last().date
-        val totalDays = max(1, ChronoUnit.DAYS.between(firstDate, lastDate).toInt())
-
-        fun xFor(date: LocalDate): Float {
-            val d = ChronoUnit.DAYS.between(firstDate, date).toFloat()
-            return paddingLeft + (d / totalDays) * chartWidth
-        }
+        val lastHist = hist.last()
+        fun xForHist(i: Int): Float = paddingLeft + histW * i / (hist.size - 1)
+        val maxAhead = max(1, preds.maxOfOrNull { ChronoUnit.DAYS.between(lastHist.date, it.point.date).toInt() } ?: 1)
+        fun xForPred(date: LocalDate): Float =
+            histEndX + forecastW * ChronoUnit.DAYS.between(lastHist.date, date).toFloat() / maxAhead
         fun yFor(rate: Double): Float {
             val t = (rate - (minRate - yPad)) / (rateRange + 2 * yPad)
             return paddingTop + chartHeight - (t * chartHeight).toFloat()
         }
 
+        if (forecastW > 0f) {
+            canvas.drawRect(histEndX, paddingTop, paddingLeft + chartWidth, paddingTop + chartHeight, zonePaint)
+            canvas.drawText("Forecast", histEndX + 10f, paddingTop + 30f, labelPaint)
+        }
+
         canvas.drawLine(paddingLeft, paddingTop, paddingLeft, paddingTop + chartHeight, axisPaint)
         canvas.drawLine(paddingLeft, paddingTop + chartHeight, paddingLeft + chartWidth, paddingTop + chartHeight, axisPaint)
-
         canvas.drawText("%.4f".format(Locale.UK, maxRate), 4f, paddingTop + 10f, labelPaint)
         canvas.drawText("%.4f".format(Locale.UK, minRate), 4f, paddingTop + chartHeight, labelPaint)
 
+        // Today's rate carried across the forecast zone, so up or down is obvious at a glance.
+        val lastY = yFor(lastHist.rate)
+        canvas.drawLine(paddingLeft, lastY, paddingLeft + chartWidth, lastY, refLinePaint)
+
         val path = Path()
-        historical.forEachIndexed { i, p ->
-            val x = xFor(p.date)
-            val y = yFor(p.rate)
-            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-        }
+        hist.forEachIndexed { i, p -> if (i == 0) path.moveTo(xForHist(i), yFor(p.rate)) else path.lineTo(xForHist(i), yFor(p.rate)) }
         canvas.drawPath(path, historyLinePaint)
 
         val dateFmt = DateTimeFormatter.ofPattern("dd MMM")
-        canvas.drawText(firstDate.format(dateFmt), paddingLeft, paddingTop + chartHeight + 36f, labelPaint)
-
-        val lastHist = historical.last()
+        val baseY = paddingTop + chartHeight + 36f
+        canvas.drawText(hist.first().date.format(dateFmt), paddingLeft, baseY, labelPaint)
         dotPaint.color = Color.parseColor("#4A90D9")
-        canvas.drawCircle(xFor(lastHist.date), yFor(lastHist.rate), 10f, dotPaint)
-        canvas.drawText(
-            lastHist.date.format(dateFmt),
-            (xFor(lastHist.date) - 60f).coerceAtLeast(paddingLeft),
-            paddingTop + chartHeight + 36f,
-            labelPaint
-        )
+        canvas.drawCircle(histEndX, lastY, 10f, dotPaint)
+        val lastLabel = lastHist.date.format(dateFmt)
+        canvas.drawText(lastLabel, (histEndX - labelPaint.measureText(lastLabel) / 2).coerceAtLeast(paddingLeft), baseY, labelPaint)
 
-        // Sorted by horizon (nearest first) so labels stack top-to-bottom in a sensible
-        // order when several lines land close together on screen, rather than whatever
-        // order the caller happened to build the list in.
-        predictedLines.sortedBy { it.point.date }.forEachIndexed { index, pred ->
-            val linePaint = Paint(predictedLinePaintTemplate).apply { color = pred.color }
-            canvas.drawLine(xFor(lastHist.date), yFor(lastHist.rate), xFor(pred.point.date), yFor(pred.point.rate), linePaint)
-
+        preds.forEachIndexed { index, pred ->
+            val px = xForPred(pred.point.date)
+            val py = yFor(pred.point.rate)
+            val linePaint = Paint(predictedLinePaintTemplate).apply { color = pred.color; strokeWidth = 6f }
+            canvas.drawLine(histEndX, lastY, px, py, linePaint)
             dotPaint.color = pred.color
-            canvas.drawCircle(xFor(pred.point.date), yFor(pred.point.rate), 10f, dotPaint)
+            canvas.drawCircle(px, py, 13f, dotPaint)
 
-            // Vertically offset each label by its index so multiple close-together
-            // predictions (e.g. 1d-7d all comparable rates) don't draw directly on top
-            // of each other and become unreadable.
-            val labelYBase = (yFor(pred.point.rate) - 16f).coerceAtLeast(paddingTop + 20f)
-            val labelY = labelYBase - (index * 30f)
-            val labelPaintColored = Paint(labelPaint).apply { color = pred.color }
-            canvas.drawText(
-                "${pred.label} (${pred.point.date.format(dateFmt)}): %.4f".format(Locale.UK, pred.point.rate),
-                (xFor(pred.point.date) - 160f).coerceAtLeast(paddingLeft),
-                labelY,
-                labelPaintColored
-            )
+            // White box with the value and its change, kept fully inside the view (it used to run off the right
+            // edge as "1d (22 Oct): 1.3"). Several horizons stack downwards so they don't overlap.
+            val pct = (pred.point.rate / lastHist.rate - 1) * 100
+            val text = "${pred.label} ${pred.point.date.format(dateFmt)}  %.4f  %+.2f%%".format(Locale.UK, pred.point.rate, pct)
+            valuePaint.color = pred.color
+            val tw = valuePaint.measureText(text)
+            val boxW = tw + 24f
+            val boxH = 44f
+            val left = (px - boxW / 2).coerceIn(paddingLeft + 4f, width - paddingRight - boxW)
+            var top = py - boxH - 22f - index * (boxH + 6f)
+            if (top < paddingTop) top = py + 22f + index * (boxH + 6f)
+            boxStrokePaint.color = pred.color
+            canvas.drawRoundRect(left, top, left + boxW, top + boxH, 12f, 12f, boxPaint)
+            canvas.drawRoundRect(left, top, left + boxW, top + boxH, 12f, 12f, boxStrokePaint)
+            canvas.drawText(text, left + 12f, top + boxH - 13f, valuePaint)
+        }
+        preds.lastOrNull()?.let {
+            val l = it.point.date.format(dateFmt)
+            canvas.drawText(l, width - paddingRight - labelPaint.measureText(l), baseY, labelPaint)
         }
     }
 }

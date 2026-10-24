@@ -4,6 +4,12 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v85 — clearer chart — 2026-10-24
+
+The rate chart shows the last 30 trading days (not everything since September), reserves the right 30% as a shaded
+"Forecast" zone whatever the horizon (a 1-day forecast used to be a tiny stub), draws a dashed line at the latest rate,
+and puts each predicted value in a boxed label with its % change that always stays on screen (it used to be cut off).
+
 ## v84 — import fix; refresh catches up missed days; 1-day lag — 2026-10-24
 
 - **Missed days are filled in.** A refresh used to capture only one date, so any day the phone missed stayed missing and the
