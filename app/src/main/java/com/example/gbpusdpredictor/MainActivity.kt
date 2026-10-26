@@ -90,6 +90,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var amountLine: TextView
     private lateinit var horizonButtonsRow: LinearLayout
     private lateinit var sentimentStatusLine: TextView
+    // Every story in the 24h news reading, each with a Flag button (v88), plus "Export my flags".
+    private lateinit var sentimentHeadlineList: LinearLayout
+    private var showAllHeadlines = false
     private lateinit var sentimentEffectLine: TextView
     private lateinit var sentimentControls: LinearLayout
 
@@ -506,6 +509,8 @@ class MainActivity : AppCompatActivity() {
         parent.addView(checkbox)
         sentimentStatusLine = TextView(this).apply { textSize = 12f; setPadding(0, 0, 0, 4) }
         parent.addView(sentimentStatusLine)
+        sentimentHeadlineList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, 0, 0, 8) }
+        parent.addView(sentimentHeadlineList)
         // Filled in by renderPrediction(): what the news does to the forecast of the selected horizon(s).
         sentimentEffectLine = TextView(this).apply { textSize = 14f; setPadding(0, 0, 0, 4); setTypeface(typeface, android.graphics.Typeface.BOLD) }
         parent.addView(sentimentEffectLine)
@@ -579,13 +584,78 @@ class MainActivity : AppCompatActivity() {
                     if (it < 1.0) "${(it * 60).toInt()} min ago" else "${"%.1f".format(Locale.UK, it)} h ago"
                 } ?: "just now"
                 val fewNote = if (reading.articles < SentimentRepository.fullStrengthStories(this)) " Few stories, so the shift is scaled down." else ""
-                val headlines = reading.headlines.take(3).joinToString("") {
-                    val arrow = when { it.direction > 0 -> "▲"; it.direction < 0 -> "▼"; else -> "•" }
-                    "\n$arrow ${it.source}: ${it.displayText}"
-                }
-                "News (24h): ${reading.label}, ${"%+.2f".format(Locale.UK, reading.score)} from ${reading.articles} scored article(s), updated $age.$fewNote$headlines"
+                "News (24h): ${reading.label}, ${"%+.2f".format(Locale.UK, reading.score)} from ${reading.articles} scored article(s), updated $age.$fewNote"
             }
         }
+        renderHeadlineList(if (enabled) reading else null)
+    }
+
+    /** The full list of stories behind the 24h reading (scored ones first, then neutral), each with a Flag button so
+     * the owner can mark one bullish / neutral / bearish. A flag changes this phone's reading at once
+     * (SentimentRepository.reading) and is kept for export as ratings.csv rows. */
+    private fun renderHeadlineList(reading: com.example.gbpusdpredictor.sentiment.SentimentReading?) {
+        sentimentHeadlineList.removeAllViews()
+        if (reading == null) return
+        val flags = com.example.gbpusdpredictor.sentiment.SentimentFlags.directions(this)
+        val items = reading.headlines.filter { it.in24h }
+            .sortedWith(compareBy<com.example.gbpusdpredictor.sentiment.SentimentHeadline> { it.direction == 0 }.thenByDescending { it.publishedTs })
+        val shown = if (showAllHeadlines) items else items.take(5)
+        fun arrow(d: Int) = when { d > 0 -> "▲"; d < 0 -> "▼"; else -> "•" }
+        shown.forEach { h ->
+            val mine = flags[h.flagKey]
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            row.addView(TextView(this).apply {
+                textSize = 12f
+                setPadding(0, 6, 8, 6)
+                text = buildString {
+                    append("${arrow(h.direction)} ${h.source}: ${h.displayText}")
+                    if (mine != null) append("   [your flag: ${arrow(mine)}]")
+                }
+                if (mine != null && mine != h.direction) setTextColor(Color.parseColor("#1C64C8"))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            row.addView(Button(this).apply {
+                text = if (mine == null) "Flag" else "Flagged"
+                textSize = 11f
+                minWidth = 0
+                minimumWidth = 0
+                setOnClickListener { showFlagDialog(h) }
+            })
+            sentimentHeadlineList.addView(row)
+        }
+        val links = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        if (items.size > 5) links.addView(Button(this).apply {
+            text = if (showAllHeadlines) "Show fewer" else "Show all ${items.size}"
+            textSize = 11f
+            setOnClickListener { showAllHeadlines = !showAllHeadlines; updateSentimentStatus() }
+        })
+        val flagCount = com.example.gbpusdpredictor.sentiment.SentimentFlags.count(this)
+        if (flagCount > 0) links.addView(Button(this).apply {
+            text = "Export my flags ($flagCount)"
+            textSize = 11f
+            setOnClickListener {
+                val csv = com.example.gbpusdpredictor.sentiment.SentimentFlags.exportCsv(this@MainActivity)
+                startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "GBP/USD headline flags")
+                    putExtra(Intent.EXTRA_TEXT, csv)
+                }, "Export flags"))
+            }
+        })
+        sentimentHeadlineList.addView(links)
+    }
+
+    private fun showFlagDialog(h: com.example.gbpusdpredictor.sentiment.SentimentHeadline) {
+        val options = arrayOf("▲ Bullish for the pound", "• Neutral", "▼ Bearish for the pound", "Clear my flag")
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(h.displayText.take(120))
+            .setItems(options) { _, which ->
+                val mine = when (which) { 0 -> 1; 1 -> 0; 2 -> -1; else -> null }
+                com.example.gbpusdpredictor.sentiment.SentimentFlags.set(this, h, mine)
+                updateSentimentStatus()
+                latestData?.let { renderPrediction(it) }
+            }
+            .show()
     }
 
     private fun refreshSentimentAsync() {

@@ -25,10 +25,20 @@ data class SentimentHeadline(
     val title: String,
     val source: String,
     val direction: Int,
-    val reason: String
+    val reason: String,
+    val publishedTs: Long = 0L,
+    val confidence: Double = 0.0,
+    val driver: String = "",
+    /** Inside the 24h window the reading is computed over (feeds published before v88 don't say: treated as yes). */
+    val in24h: Boolean = true,
+    /** Source weight x time decay at publish time, or null for a feed published before v88. */
+    val baseW: Double? = null
 ) {
     /** What to show for this story: its headline if published, otherwise our own reason. */
     val displayText: String get() = if (title.isNotBlank()) title else reason
+
+    /** Stable id for the owner's flag on this story across feed refreshes. */
+    val flagKey: String get() = "$publishedTs|$source|${displayText.take(60)}"
 }
 
 data class SentimentSignal(
@@ -139,7 +149,14 @@ object SentimentRepository {
                 val h = arr.getJSONObject(i)
                 // org.json's optString returns the text "null" for a JSON null, not "".
                 fun text(key: String) = if (h.isNull(key)) "" else h.optString(key)
-                SentimentHeadline(text("title"), text("source"), h.optInt("direction", 0), text("reason"))
+                SentimentHeadline(
+                    text("title"), text("source"), h.optInt("direction", 0), text("reason"),
+                    publishedTs = h.optLong("published_ts", 0L),
+                    confidence = h.optDouble("confidence", 0.0),
+                    driver = text("driver"),
+                    in24h = if (h.has("in_24h")) h.optBoolean("in_24h", true) else true,
+                    baseW = if (h.has("base_w") && !h.isNull("base_w")) h.optDouble("base_w") else null
+                )
             }
         } ?: emptyList()
         return SentimentSignal(root.getLong("generated_ts"), window("1h"), window("6h"), window("24h"), headlines)
@@ -166,6 +183,95 @@ object SentimentRepository {
         val signal = cached(context) ?: return null
         val age = signal.ageHours()
         if (age > SentimentAdjustment.MAX_AGE_HOURS) return null
-        return SentimentReading(signal.w24h.score, signal.w24h.articles, signal.w24h.label, age, signal.headlines)
+        // The owner's own flags (SentimentFlags) replace the scorer's direction for those stories, and the 24h score
+        // is recomputed exactly as the publisher does (sum(dir * conf * base_w) / sum(conf * base_w), aggregate.py),
+        // with a flagged story counted at confidence FLAG_CONFIDENCE. Needs base_w (feeds from v88 on).
+        val flags = SentimentFlags.directions(context)
+        val items = signal.headlines.filter { it.in24h && it.baseW != null }
+        val flagged = items.count { it.flagKey in flags }
+        if (flagged == 0 || items.isEmpty()) {
+            return SentimentReading(signal.w24h.score, signal.w24h.articles, signal.w24h.label, age, signal.headlines)
+        }
+        var num = 0.0
+        var den = 0.0
+        var used = 0
+        for (h in items) {
+            val mine = flags[h.flagKey]
+            val dir = mine ?: h.direction
+            val w = (if (mine != null) SentimentFlags.FLAG_CONFIDENCE else h.confidence) * h.baseW!!
+            if (w <= 0.0) continue
+            num += dir * w
+            den += w
+            used++
+        }
+        val score = if (den > 0.0) num / den else 0.0
+        return SentimentReading(score, used, labelFor(score) + " (incl. your $flagged flag${if (flagged == 1) "" else "s"})", age, signal.headlines)
+    }
+
+    /** Same thresholds as the publisher's aggregate.label(). */
+    fun labelFor(score: Double): String = when {
+        score >= 0.4 -> "strongly bullish"
+        score >= 0.15 -> "mildly bullish"
+        score <= -0.4 -> "strongly bearish"
+        score <= -0.15 -> "mildly bearish"
+        else -> "neutral"
+    }
+}
+
+/**
+ * The owner's own verdict on individual headlines ("this one is wrong"): bullish +1, neutral 0, bearish -1.
+ * Stored on the phone only. Applied to this phone's news reading straight away (SentimentRepository.reading), and
+ * exportable as CSV in the same columns as gbpusd-sentiment/ratings.csv so they can become scorer rules for everyone.
+ */
+object SentimentFlags {
+    private const val PREFS = "news_flags"
+    private const val KEY = "flags_json"
+    /** A flagged story counts like an owner-ruled rule (the UK-inflation owner rule uses 0.9). */
+    const val FLAG_CONFIDENCE = 0.9
+
+    private fun load(context: Context): org.json.JSONObject =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)
+            ?.let { runCatching { org.json.JSONObject(it) }.getOrNull() } ?: org.json.JSONObject()
+
+    private fun save(context: Context, o: org.json.JSONObject) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, o.toString()).apply()
+
+    fun directions(context: Context): Map<String, Int> {
+        val o = load(context)
+        return o.keys().asSequence().associateWith { o.getJSONObject(it).getInt("mine") }
+    }
+
+    fun count(context: Context): Int = load(context).length()
+
+    /** [mine] = +1, 0 or -1; null clears the flag. */
+    fun set(context: Context, h: SentimentHeadline, mine: Int?) {
+        val o = load(context)
+        if (mine == null) o.remove(h.flagKey) else o.put(h.flagKey, org.json.JSONObject().apply {
+            put("mine", mine)
+            put("ts", h.publishedTs)
+            put("source", h.source)
+            put("headline", h.displayText)
+            put("scorer", h.direction)
+            put("confidence", h.confidence)
+            put("driver", h.driver)
+            put("reason", h.reason)
+        })
+        save(context, o)
+    }
+
+    /** Same columns as ratings.csv: time,headline,my_score,scorer_score,scorer_confidence,driver,scorer_reason,notes */
+    fun exportCsv(context: Context): String {
+        val o = load(context)
+        fun q(v: String) = "\"" + v.replace("\"", "\"\"") + "\""
+        val fmt = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(java.time.ZoneOffset.UTC)
+        val lines = o.keys().asSequence().map { o.getJSONObject(it) }.sortedBy { it.optLong("ts") }.map { f ->
+            listOf(
+                fmt.format(java.time.Instant.ofEpochSecond(f.optLong("ts"))), q(f.optString("headline")),
+                f.optInt("mine").toString(), f.optInt("scorer").toString(), f.optDouble("confidence", 0.0).toString(),
+                f.optString("driver"), q(f.optString("reason")), q("flagged in app (${f.optString("source")})")
+            ).joinToString(",")
+        }
+        return (sequenceOf("time,headline,my_score,scorer_score,scorer_confidence,driver,scorer_reason,notes") + lines)
+            .joinToString("\n")
     }
 }

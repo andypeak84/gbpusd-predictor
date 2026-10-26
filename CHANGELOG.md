@@ -4,6 +4,17 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v88 — full headline list, flag any headline — 2026-10-26
+
+- The news section lists every story in the 24h reading (scored ones first, then neutral; 5 shown, "Show all N" for the
+  rest), not just the top 3. The publisher now sends all 24h stories with each one's weight (`base_w`).
+- **Flag** on each headline: mark it bullish, neutral or bearish (or clear). A flag replaces the scorer's verdict for that
+  story on this phone, and the 24h reading is recomputed exactly as the publisher computes it (flagged stories count at
+  confidence 0.9), so the news effect on the forecast changes at once; the label says "incl. your N flags".
+- **Export my flags** shares them as CSV rows in ratings.csv's columns, to turn them into scorer rules for everyone.
+- Scorer (sentiment repo): owner ratings of 26 Oct -- tanker strike / oil spill = supply disruption (bearish), Brexit
+  reversal = bearish, wealth leaving the UK over tax = bearish (was wrongly bullish via "tax hike").
+
 ## v87 — forecast from today's rate; yields/VIX/Brent one day stale by design — 2026-10-26
 
 - **Anchored on today.** The daily refresh moves from 21:00 to 16:00 UTC (after the ECB reference rate) and stores TODAY's
