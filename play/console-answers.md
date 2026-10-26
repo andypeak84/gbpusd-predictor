@@ -31,6 +31,6 @@ Alpha Vantage key stay on the device (not "collected"). The Alpha Vantage key is
 own choice, to fetch the exchange rate for that user.
 
 ## Store settings
-- Free app, English (UK), category Finance, contact email [CONTACT EMAIL], website optional.
+- Free app, English (UK), category Finance, contact email gdpusd26@gmail.com, website optional.
 - Countries: all, or start with the UK.
 - Do NOT upload an AAB built with Google's test ad ids (the build refuses to make one).
