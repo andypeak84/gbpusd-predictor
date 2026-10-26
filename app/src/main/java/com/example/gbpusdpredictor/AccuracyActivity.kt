@@ -59,6 +59,13 @@ class AccuracyActivity : AppCompatActivity() {
         }
         root.addView(summaryView)
 
+        val newsView = TextView(this).apply {
+            textSize = 13f
+            setTextColor(Color.parseColor("#1C64C8"))
+            setPadding(24, 0, 24, 8)
+        }
+        root.addView(newsView)
+
         root.addView(TextView(this).apply {
             text = "Each row: the model's 1-business-day call made from “From”, scored against the " +
                 "actual GBP/USD on “Target”. Direction = did predicted and actual move the same way. " +
@@ -125,9 +132,50 @@ class AccuracyActivity : AppCompatActivity() {
 
             if (scored.isEmpty()) return@launch
 
+            // Second scorer: the same forecasts WITH the news-sentiment overlay, as the main screen applies it
+            // (SentimentAdjustment.tilt with the user's current weight / full-strength settings). Each forecast uses
+            // the last published reading from BEFORE its target day's ECB fix (~13:15 UTC) and no older than
+            // MAX_AGE_HOURS, so no news from after the outcome is ever used. Forecasts with no reading in that window
+            // (the sentiment history only starts 21 Oct 2026) are left out of this score, not counted as misses.
+            val history = withContext(Dispatchers.IO) {
+                runCatching {
+                    val arr = org.json.JSONArray(com.example.gbpusdpredictor.network.SentimentApi.service.getHistoryRaw())
+                    (0 until arr.length()).mapNotNull { i ->
+                        val o = arr.getJSONObject(i)
+                        if (!o.has("ts") || !o.has("s24h")) null
+                        else Triple(o.getLong("ts"), o.getDouble("s24h"), o.optInt("n24h", 0))
+                    }.sortedBy { it.first }
+                }.getOrDefault(emptyList())
+            }
+            val sd1 = withContext(Dispatchers.Default) {
+                com.example.gbpusdpredictor.ml.TreeModelPredictor(applicationContext).horizonSdPct(1)
+            }
+            val weight = com.example.gbpusdpredictor.sentiment.SentimentRepository.weight(this@AccuracyActivity)
+            val fullStrength = com.example.gbpusdpredictor.sentiment.SentimentRepository.fullStrengthStories(this@AccuracyActivity)
+            val maxAgeS = (com.example.gbpusdpredictor.sentiment.SentimentAdjustment.MAX_AGE_HOURS * 3600).toLong()
+            val newsTilt: Map<java.time.LocalDate, Double> = scored.mapNotNull { s ->
+                val cutoff = s.matchedActualDate.atTime(13, 15).toEpochSecond(java.time.ZoneOffset.UTC)
+                val reading = history.lastOrNull { it.first < cutoff } ?: return@mapNotNull null
+                if (cutoff - reading.first > maxAgeS) return@mapNotNull null
+                s.forecastDate to com.example.gbpusdpredictor.sentiment.SentimentAdjustment.tilt(
+                    reading.second, reading.third, sd1, weight, fullStrength)
+            }.toMap()
+            val withNews = scored.filter { it.forecastDate in newsTilt }
+            fun newsHit(s: PredictionScorer.ScoredForecast) =
+                ((s.predictedChangePct + newsTilt.getValue(s.forecastDate)) >= 0.0) == (s.actualChangePct >= 0.0)
+            newsView.text = if (withNews.isEmpty()) {
+                "With news sentiment: no forecasts yet with a news reading from before their target day (history began 21 Oct 2026)."
+            } else {
+                val hitsNews = withNews.count { newsHit(it) }
+                val hitsModel = withNews.count { it.directionHit }
+                "With news sentiment: direction correct $hitsNews/${withNews.size} " +
+                    "(${"%.0f".format(Locale.UK, 100.0 * hitsNews / withNews.size)}%) · model alone on the same " +
+                    "${withNews.size}: $hitsModel/${withNews.size}. Uses your current news weight (${"%.2f".format(Locale.UK, weight)})."
+            }
+
             addRow(
                 rows,
-                listOf("From", "Target", "Base", "Predicted", "Actual", "Pred Δ%", "Actual Δ%", "Direction"),
+                listOf("From", "Target", "Base", "Predicted", "Actual", "Pred Δ%", "Actual Δ%", "Direction", "News tilt", "With news"),
                 bold = true,
                 color = null
             )
@@ -142,7 +190,9 @@ class AccuracyActivity : AppCompatActivity() {
                         "%.4f".format(Locale.UK, s.actualRate),
                         "%+.2f%%".format(Locale.UK, s.predictedChangePct * 100),
                         "%+.2f%%".format(Locale.UK, s.actualChangePct * 100),
-                        if (s.directionHit) "✓ hit" else "✗ miss"
+                        if (s.directionHit) "✓ hit" else "✗ miss",
+                        newsTilt[s.forecastDate]?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
+                        if (s.forecastDate !in newsTilt) "—" else if (newsHit(s)) "✓ hit" else "✗ miss"
                     ),
                     bold = false,
                     color = if (s.directionHit) Color.parseColor("#12B886") else Color.parseColor("#E5484D")

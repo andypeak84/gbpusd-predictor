@@ -4,6 +4,14 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v86 — Accuracy: second hit score WITH news sentiment — 2026-10-26
+
+The Accuracy screen adds a blue "With news sentiment" line and two table columns (News tilt, With news). Each scored forecast
+is re-scored with the news overlay exactly as the main screen applies it (your current weight / full-strength settings),
+using the last published sentiment reading from BEFORE the target day's ECB fix (~13:15 UTC) and no older than 30 h, so no
+news from after the outcome is used. Forecasts with no reading in that window (history began 21 Oct 2026) are left out of
+that score and shown as "—". The line also shows the model alone on the same forecasts, for a like-for-like comparison.
+
 ## v85 — clearer chart — 2026-10-24
 
 The rate chart shows the last 30 trading days (not everything since September), reserves the right 30% as a shaded

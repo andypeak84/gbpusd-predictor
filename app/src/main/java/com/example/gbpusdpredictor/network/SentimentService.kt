@@ -20,6 +20,12 @@ interface SentimentService {
     @Headers("Cache-Control: no-cache")
     @GET("andypeak84/sentiment/main/data/sentiment.json")
     suspend fun getLatestRaw(@Query("cacheBust") cacheBust: Long = System.currentTimeMillis()): String
+
+    // One point per publisher run: [{"ts": epoch seconds, "s24h": score, "n24h": stories, ...}]. Used by the
+    // Accuracy screen to score forecasts WITH the news overlay, using the reading that existed at the time.
+    @Headers("Cache-Control: no-cache")
+    @GET("andypeak84/sentiment/main/data/sentiment-history.json")
+    suspend fun getHistoryRaw(@Query("cacheBust") cacheBust: Long = System.currentTimeMillis()): String
 }
 
 object SentimentApi {
