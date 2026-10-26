@@ -3,7 +3,7 @@
 **App name (max 30):** GBP/USD Predictor
 **Default language:** English (United Kingdom)
 **Category:** Finance  |  **Tags:** Currency converter, Finance, Tools
-**Contact email:** gdpusd26@gmail.com  |  **Privacy policy URL:** [PRIVACY POLICY URL]
+**Contact email:** gdpusd26@gmail.com  |  **Privacy policy URL:** https://andypeak84.github.io/gbpusd-predictor/privacy-policy.html
 **Price:** Free, contains ads
 
 ## Short description (max 80)
