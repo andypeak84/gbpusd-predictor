@@ -195,16 +195,22 @@ class AccuracyActivity : AppCompatActivity() {
                         if (s.forecastDate !in newsTilt) "—" else if (newsHit(s)) "✓ hit" else "✗ miss"
                     ),
                     bold = false,
-                    color = if (s.directionHit) Color.parseColor("#12B886") else Color.parseColor("#E5484D")
+                    color = if (s.directionHit) Color.parseColor("#12B886") else Color.parseColor("#E5484D"),
+                    cellColors = if (s.forecastDate !in newsTilt) mapOf(8 to Color.GRAY, 9 to Color.GRAY) else {
+                        val c = if (newsHit(s)) Color.parseColor("#12B886") else Color.parseColor("#E5484D")
+                        mapOf(8 to c, 9 to c)
+                    }
                 )
             }
         }
     }
 
-    private fun addRow(parent: LinearLayout, cells: List<String>, bold: Boolean, color: Int?) {
+    /** @param cellColors optional per-cell colour overriding [color] (the news columns are coloured by their own
+     * hit/miss, not by the model-alone result that colours the rest of the row). */
+    private fun addRow(parent: LinearLayout, cells: List<String>, bold: Boolean, color: Int?, cellColors: Map<Int, Int> = emptyMap()) {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val widthPx = (columnWidthDp * resources.displayMetrics.density).toInt()
-        cells.forEach { text ->
+        cells.forEachIndexed { i, text ->
             row.addView(TextView(this).apply {
                 this.text = text
                 textSize = 12f
@@ -212,7 +218,7 @@ class AccuracyActivity : AppCompatActivity() {
                 setPadding(16, 12, 16, 12)
                 layoutParams = LinearLayout.LayoutParams(widthPx, LinearLayout.LayoutParams.WRAP_CONTENT)
                 if (bold) setTypeface(typeface, Typeface.BOLD)
-                if (color != null) setTextColor(color)
+                (cellColors[i] ?: color)?.let { setTextColor(it) }
             })
         }
         parent.addView(row)

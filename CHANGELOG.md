@@ -4,6 +4,18 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v87 — forecast from today's rate; yields/VIX/Brent one day stale by design — 2026-10-26
+
+- **Anchored on today.** The daily refresh moves from 21:00 to 16:00 UTC (after the ECB reference rate) and stores TODAY's
+  GBP/USD and FX features, then forecasts tomorrow onwards. Before, it captured yesterday and "forecast" a day whose rate
+  was already published, which flattered the Accuracy score. A run before the ECB has published fails and retries.
+- **Yields, VIX, Brent are taken from the previous business day** (they publish a day after the ECB). The model is
+  retrained with exactly that lag (`ml/train_grouped.py --lag-stale`), so live inputs match training. Same holdouts as
+  before: latest window 62.7% / 0.641% (was 58.3% / 0.640%), earlier window 48.2% / 0.878% (was 45.1% / 0.899%).
+- Main-screen horizons count trading days ("1d" from Friday is Monday), matching how Accuracy scores them.
+- Accuracy: the "News tilt" / "With news" cells are coloured by their own hit/miss (they used the model-alone colour).
+- Rows stored before v87 hold same-day yields/VIX/Brent; rows from v87 on hold the previous day's.
+
 ## v86 — Accuracy: second hit score WITH news sentiment — 2026-10-26
 
 The Accuracy screen adds a blue "With news sentiment" line and two table columns (News tilt, With news). Each scored forecast

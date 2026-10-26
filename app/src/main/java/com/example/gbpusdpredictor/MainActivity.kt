@@ -639,7 +639,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val targetDateFor = { days: Int -> LocalDate.parse(latest.date).plusDays(days.toLong()) }
+        // Trading days, not calendar days: a Friday "1d" forecast is for Monday (as the Accuracy screen scores it).
+        val targetDateFor = { days: Int -> AppClock.businessDaysForward(LocalDate.parse(latest.date), days) }
         refreshChartHistory(predictions.map { (days, _, predictedRate) ->
             RateChartView.PredictedLine(
                 point = RateChartView.Point(targetDateFor(days), predictedRate),

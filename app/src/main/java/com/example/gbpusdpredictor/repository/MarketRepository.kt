@@ -74,7 +74,7 @@ class MarketRepository(
         // refresh -- ECB same day, US Treasury the same evening, the gilt fetcher 17:45 UTC, Brent recorded
         // 19:45 UTC, VIX checked four times a day up to 20:15 UTC. The 2-day lag existed for FRED's slower
         // US yield / oil series, which the app no longer reads (VIX can still miss a day: it is then null).
-        const val TARGET_LAG_BUSINESS_DAYS = 1
+        const val TARGET_LAG_BUSINESS_DAYS = 0
 
         // How many business days before the target a refresh looks back for missing rows to fill in.
         const val CATCH_UP_BUSINESS_DAYS = 10
@@ -198,7 +198,8 @@ class MarketRepository(
      * day with no data at all (a bank holiday) must not make every future run "fail".
      */
     suspend fun refreshData(): RefreshResult = withContext(Dispatchers.IO) {
-        val target = AppClock.businessDaysBack(AppClock.today(), TARGET_LAG_BUSINESS_DAYS)
+        // The latest business day up to and including today (a weekend run targets Friday).
+        val target = AppClock.businessDaysBack(AppClock.businessDaysBack(AppClock.today().plusDays(1), 1), TARGET_LAG_BUSINESS_DAYS)
         val dates = generateSequence(target) { AppClock.businessDaysBack(it, 1) }
             .take(CATCH_UP_BUSINESS_DAYS + 1).toList().reversed()
         var anyNew = false
@@ -273,15 +274,20 @@ class MarketRepository(
                     realizedVol(pricesUpToTarget, REALIZED_VOL_WINDOW)
                 else null
 
-            val us2yHistory = fetchMacroHistory("us2y", targetDate, purpose = "us2y")
-            val us2y = us2yHistory[targetDate]
+            // v87: the forecast is made from TODAY's ECB rate (all FX features above and below use targetDate),
+            // while the non-ECB inputs -- US/UK 2yr yields, the spread, VIX, Brent -- are taken from the previous
+            // business day, because they publish a day after the ECB fix. The model is trained with exactly this
+            // one-day lag (ml/train_grouped.py --lag-stale), so what it sees live matches what it learned from.
+            val inputDate = AppClock.businessDaysBack(targetDate, 1)
+            val us2yHistory = fetchMacroHistory("us2y", inputDate, purpose = "us2y")
+            val us2y = us2yHistory[inputDate]
             // Zero-new-fetch momentum companion -- same us2yHistory already fetched above.
-            val us2yChange5d = changeNDaysAgoFromSeries(us2yHistory, targetDate, 5, toleranceDays = 2)
+            val us2yChange5d = changeNDaysAgoFromSeries(us2yHistory, inputDate, 5, toleranceDays = 2)
 
-            val vixHistory = fetchMacroHistory("vix", targetDate, purpose = "vix")
-            val vix = vixHistory[targetDate]
+            val vixHistory = fetchMacroHistory("vix", inputDate, purpose = "vix")
+            val vix = vixHistory[inputDate]
             // Zero-new-fetch momentum companion -- same vixHistory already fetched above.
-            val vixChange5d = changeNDaysAgoFromSeries(vixHistory, targetDate, 5, toleranceDays = 2)
+            val vixChange5d = changeNDaysAgoFromSeries(vixHistory, inputDate, 5, toleranceDays = 2)
 
             // WTI is no longer fetched or used (v80): its EIA/FRED series runs 2-3 days stale and Brent carries
             // the oil signal. The retrained model has no oilChange5d feature; the column stays in the
@@ -291,32 +297,32 @@ class MarketRepository(
             // Brent -- a second, independent oil benchmark alongside WTI (not a
             // replacement). See fetchBrentHistoryFromGitHub's own comment for why; same
             // fetch/tolerance pattern as oilChange5d exactly.
-            val brentHistoryForChangeOnly = fetchBrentHistoryFromGitHub(targetDate)
+            val brentHistoryForChangeOnly = fetchBrentHistoryFromGitHub(inputDate)
             // Prefer the fresher daily Brent series (brent-latest.json) once it has enough history for
             // its OWN 5-day change (it started 2026-10-23, so ~6 business days of readings are needed;
             // before that this is null). The two series are never mixed within one change, since the
             // futures price and EIA's spot assessment differ by a basis. EIA stays as the fallback.
-            val brentLatestHistory = fetchMacroHistory("brent-latest", targetDate, purpose = "brentChange5d (fresher source)")
-            val brentChange5d = changeNDaysAgoFromSeries(brentLatestHistory, targetDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
-                ?: changeNDaysAgoFromSeries(brentHistoryForChangeOnly, targetDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
+            val brentLatestHistory = fetchMacroHistory("brent-latest", inputDate, purpose = "brentChange5d (fresher source)")
+            val brentChange5d = changeNDaysAgoFromSeries(brentLatestHistory, inputDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
+                ?: changeNDaysAgoFromSeries(brentHistoryForChangeOnly, inputDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
 
-            val giltHistory = fetchGiltYieldHistory(targetDate)
+            val giltHistory = fetchGiltYieldHistory(inputDate)
             // fetchUkRateForDate (direct BoE, Bank Rate not gilt yield -- see its own
             // comment) is a real date-matched fetch in its own right, not a bootstrap --
-            // only tried if the GitHub gilt-yield snapshot didn't have targetDate. No more
+            // only tried if the GitHub gilt-yield snapshot didn't have inputDate. No more
             // falling back further than that to a fixed hand-maintained constant: a
-            // manually-updated Bank Rate figure isn't date-matched to targetDate any more
+            // manually-updated Bank Rate figure isn't date-matched to inputDate any more
             // than a carried-forward value was, so per this redesign it's null instead.
-            val ukRate = giltHistory[targetDate] ?: fetchUkRateForDate(targetDate)
+            val ukRate = giltHistory[inputDate] ?: fetchUkRateForDate(inputDate)
 
             val spread2y = if (ukRate != null && us2y != null) ukRate - us2y else null
             val spreadSeries = joinSpreadSeries(giltHistory, us2yHistory, toleranceDays = 3)
-            val spread2yChange1d = changeNDaysAgoFromSeries(spreadSeries, targetDate, 1, toleranceDays = 1)
-            val spread2yChange5d = changeNDaysAgoFromSeries(spreadSeries, targetDate, 5, toleranceDays = 2)
+            val spread2yChange1d = changeNDaysAgoFromSeries(spreadSeries, inputDate, 1, toleranceDays = 1)
+            val spread2yChange5d = changeNDaysAgoFromSeries(spreadSeries, inputDate, 5, toleranceDays = 2)
             // Longer-trend companion -- same spreadSeries, no new fetch. The Fed/BoE rate
             // divergence (US hiking, UK holding) showed up as spread2y trending wider over
             // weeks, not something a 1d/5d window captures well.
-            val spread2yChange10d = changeNDaysAgoFromSeries(spreadSeries, targetDate, 10, toleranceDays = 2)
+            val spread2yChange10d = changeNDaysAgoFromSeries(spreadSeries, inputDate, 10, toleranceDays = 2)
 
             // FX-cross momentum -- all Frankfurter, all 5-business-day % CHANGES (never a
             // raw level), same changeNDaysAgoFromSeries + 2-day tolerance as the other
@@ -406,6 +412,12 @@ class MarketRepository(
             // no-trading-data day (a shared US/UK bank holiday) will legitimately exhaust
             // those retries and end with no row at all -- which is the honest result for a
             // day with no real data, not a regression from a row full of "null".
+            // v87: the forecast is anchored on targetDate's own ECB rate. Before the ECB has published it (an
+            // early run), fail and let the worker retry rather than store a row with no anchor.
+            if (gbpUsd == null) {
+                Log.w("MarketRepository", "refreshData: no ECB GBP/USD for $targetDateStr yet -- returning FAILED for retry.")
+                return@withContext RefreshResult.FAILED
+            }
             if (corePresent == 0) {
                 Log.w("MarketRepository", "refreshData: 0/4 core fields for $targetDateStr -- not writing a row, returning FAILED for retry.")
                 return@withContext RefreshResult.FAILED

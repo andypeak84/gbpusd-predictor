@@ -44,7 +44,9 @@ object MarketDataScheduler {
     // the old same-day 16:00 UTC one -- that time was tuned for "today's figure has
     // probably been published," which is a different (and looser) bar than "yesterday's
     // figure is now fully settled everywhere," which is what this now needs.
-    const val REFRESH_HOUR_UTC = 21
+    // v87: 16:00 UTC, after the ECB reference rate (published ~14:00-16:00 CET) -- the forecast is now made
+    // from TODAY's rate, with the other inputs one business day old (see MarketRepository.captureDate).
+    const val REFRESH_HOUR_UTC = 16
     const val REFRESH_MINUTE_UTC = 0
 
     fun millisUntilNextUtc(hour: Int, minute: Int): Long {
