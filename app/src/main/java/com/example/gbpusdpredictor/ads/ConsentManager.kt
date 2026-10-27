@@ -84,6 +84,17 @@ object ConsentManager {
     }
 
     private fun initialiseMobileAdsOnce(appContext: Context) {
-        if (mobileAdsInitialised.compareAndSet(false, true)) MobileAds.initialize(appContext)
+        if (mobileAdsInitialised.compareAndSet(false, true)) {
+            // The developer's own phones get Google's test ads even in a release build (ADMOB_TEST_DEVICE_IDS in
+            // local.properties, comma-separated; never committed), so real ads are never shown -- or tapped -- on a
+            // device used for testing, which AdMob treats as invalid traffic. Everyone else gets real ads.
+            val testIds = BuildConfig.ADMOB_TEST_DEVICE_IDS.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            if (testIds.isNotEmpty()) {
+                MobileAds.setRequestConfiguration(
+                    com.google.android.gms.ads.RequestConfiguration.Builder().setTestDeviceIds(testIds).build()
+                )
+            }
+            MobileAds.initialize(appContext)
+        }
     }
 }

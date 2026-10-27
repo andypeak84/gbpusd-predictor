@@ -4,6 +4,13 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v89 — the developer's phone gets test ads in release builds — 2026-10-27
+
+Release builds request real AdMob ads, including on the developer's own phone, where viewing/tapping them risks an
+invalid-traffic flag on the AdMob account. Devices listed in `ADMOB_TEST_DEVICE_IDS` (local.properties, comma-separated,
+never committed) are now registered with `RequestConfiguration.setTestDeviceIds` before `MobileAds.initialize`, so they
+get Google's test ads in every build; everyone else gets real ads.
+
 ## v88 — full headline list, flag any headline — 2026-10-26
 
 - The news section lists every story in the 24h reading (scored ones first, then neutral; 5 shown, "Show all N" for the

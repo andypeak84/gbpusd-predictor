@@ -273,7 +273,7 @@ class MainActivity : AppCompatActivity() {
         val hours = totalMinutes / 60
         val minutes = totalMinutes % 60
         val countdown = if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
-        return "Next scheduled refresh: in $countdown (21:00 UTC daily)"
+        return "Next scheduled refresh: in $countdown (%02d:%02d UTC daily)".format(Locale.UK, MarketDataScheduler.REFRESH_HOUR_UTC, MarketDataScheduler.REFRESH_MINUTE_UTC)
     }
 
     /** Loud banner text when the newest stored row has fallen well behind where the daily

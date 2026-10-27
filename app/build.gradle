@@ -45,19 +45,21 @@ android {
         applicationId "com.andypeak.gbpusdpredictor"
         minSdk 26
         targetSdk 36
-        versionCode 88
+        versionCode 89
         // Synced to the newgdp-vNN zip numbering this project ships under (see
         // MainActivity.kt, which shows this on-screen) -- bump both this and versionCode
         // above together on every delivered zip from here on. Jumped 63 -> 65 (skipping
         // 64) because the prior oilChange5d anchor-tolerance fix shipped without this
         // bump -- the phone kept showing v63 despite that fix being live, real confusion
         // during a live debugging session. Never skip this again.
-        versionName "88"
+        versionName "89"
 
         testApplicationId "com.andypeak.gbpusdpredictor.test"
 
         // Debug builds only (see ads/ConsentManager): hashed id of a test device, to see the UK/EEA consent form.
         buildConfigField "String", "UMP_TEST_DEVICE_ID", "\"${localProperties.getProperty('UMP_TEST_DEVICE_ID', '')}\""
+        // The developer's own devices (AdMob test-device ids, comma-separated): they get test ads in every build.
+        buildConfigField "String", "ADMOB_TEST_DEVICE_IDS", "\"${localProperties.getProperty('ADMOB_TEST_DEVICE_IDS', '')}\""
     }
 
     signingConfigs {
