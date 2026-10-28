@@ -51,6 +51,9 @@ import java.util.Locale
  * single 21:00 UTC daily job is the only thing that ever writes a row now, per explicit
  * request. This screen is purely a read/view onto whatever's already in the database.
  */
+/** The developer's Google Form for feature suggestions ("Suggest a feature" button). Blank hides the button. */
+private const val FEEDBACK_FORM_URL = ""
+
 class MainActivity : AppCompatActivity() {
 
     private lateinit var container: LinearLayout
@@ -808,6 +811,20 @@ class MainActivity : AppCompatActivity() {
         val row2 = newRow()
         row2.addView(weightedButton("Diagnostics, history & credits") { startActivity(Intent(this@MainActivity, DiagnosticsActivity::class.java)) })
         parent.addView(row2)
+
+        // "What would you like to see in the app?" survey: a Google Form the developer owns, opened in the browser so
+        // the app itself collects nothing. Hidden until FEEDBACK_FORM_URL is filled in (questions: play/survey.md).
+        if (FEEDBACK_FORM_URL.isNotBlank()) {
+            val row3 = newRow()
+            row3.addView(weightedButton("Suggest a feature") {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(FEEDBACK_FORM_URL)))
+                } catch (e: android.content.ActivityNotFoundException) {
+                    Toast.makeText(this@MainActivity, "No browser found", Toast.LENGTH_LONG).show()
+                }
+            })
+            parent.addView(row3)
+        }
 
         addSpacer(parent)
     }

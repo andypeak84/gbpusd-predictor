@@ -4,6 +4,22 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v90 — easier Alpha Vantage key entry for price alerts — 2026-10-28
+
+Price Alerts settings: a "Get a free key" button opens Alpha Vantage's key page (email-only form, key shown at once), a
+"Paste key" button fills the field from the clipboard (strips spaces/quotes, rejects text that isn't letters and digits),
+and Save now checks a new key with one live request and shows "Key works -- live rate ..." or the error. The app still
+cannot obtain a key itself: Alpha Vantage issues keys per person through its own form.
+
+Accuracy: a "News effect" column (did the news tilt move that forecast's % towards the actual move, or away) and a
+summary line (average tilt size, helped/hurt counts, average % error model alone vs with news). A news sweet-spot scan
+tries every weight (0-1.5, step 0.05) x full-strength story count (1-6) on the scored forecasts, ranks by direction
+hits then average % error, shows the best against the user's own settings (flagged as a hint under 20 forecasts) and
+offers "Use best news settings".
+
+Main screen: "Suggest a feature" button opening the developer's Google Form (questions in play/survey.md); hidden
+while FEEDBACK_FORM_URL is blank.
+
 ## v89 — the developer's phone gets test ads in release builds — 2026-10-27
 
 Release builds request real AdMob ads, including on the developer's own phone, where viewing/tapping them risks an

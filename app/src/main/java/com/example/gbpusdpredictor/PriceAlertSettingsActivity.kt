@@ -65,11 +65,24 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
             hint = "paste your key here"
         }
         root.addView(keyInput)
+        // Getting a key is the only fiddly step: a form on Alpha Vantage's site (email only) that shows the key at once.
+        // The app can't sign up for the user, so it opens the page and then pastes the copied key in one tap.
+        val keyRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        keyRow.addView(Button(this).apply {
+            text = "Get a free key"
+            setOnClickListener { openKeyPage() }
+        })
+        keyRow.addView(Button(this).apply {
+            text = "Paste key"
+            setOnClickListener { pasteKey() }
+        })
+        root.addView(keyRow)
         root.addView(TextView(this).apply {
-            text = "Get a free key at alphavantage.co/support/#api-key. It stays on this device and is only sent to Alpha Vantage. Alerts need a key; the daily forecast does not."
+            text = "1. Tap Get a free key, enter your email and press GET FREE API KEY.\n" +
+                "2. Copy the key it shows, come back and tap Paste key, then Save (Save checks the key works).\n" +
+                "The key stays on this device and is only sent to Alpha Vantage. Alerts need a key; the daily forecast does not."
             textSize = 12f
             setPadding(0, 4, 0, 16)
-            autoLinkMask = android.text.util.Linkify.WEB_URLS
         })
 
         enabledCheckbox = CheckBox(this).apply { text = "Enable price alerts" }
@@ -139,7 +152,9 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
         val upper = upperInput.text.toString().trim().toDoubleOrNull()
         val lower = lowerInput.text.toString().trim().toDoubleOrNull()
         val movePct = movePctInput.text.toString().trim().toDoubleOrNull()?.div(100.0)
-        val key = keyInput.text.toString().trim()
+        val key = cleanKey(keyInput.text.toString())
+        keyInput.setText(key)
+        val keyChanged = key.isNotEmpty() && key != with(PriceAlertPrefs) { alphaVantageKey }
         val enabled = enabledCheckbox.isChecked && key.isNotEmpty()
         if (enabledCheckbox.isChecked && key.isEmpty()) {
             enabledCheckbox.isChecked = false
@@ -162,6 +177,46 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
 
         Toast.makeText(this, if (enabled) "Price alerts enabled" else "Price alerts disabled", Toast.LENGTH_SHORT).show()
         refreshStatus()
+        if (keyChanged) checkKey(key)
+    }
+
+    private fun openKeyPage() {
+        try {
+            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                android.net.Uri.parse("https://www.alphavantage.co/support/#api-key")))
+        } catch (e: android.content.ActivityNotFoundException) {
+            Toast.makeText(this, "No browser found -- visit alphavantage.co/support/#api-key", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Copied keys often carry a trailing space, a newline or quotes; Alpha Vantage keys are letters and digits only. */
+    private fun cleanKey(raw: String) = raw.trim().trim('"', '\'', '`').trim()
+
+    private fun pasteKey() {
+        val clip = (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).primaryClip
+        val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
+        val key = text?.let { cleanKey(it) }.orEmpty()
+        when {
+            key.isEmpty() -> Toast.makeText(this, "Nothing copied yet -- copy the key on the Alpha Vantage page first", Toast.LENGTH_LONG).show()
+            !key.matches(Regex("[A-Za-z0-9]{8,40}")) ->
+                Toast.makeText(this, "The copied text doesn't look like a key (letters and digits only)", Toast.LENGTH_LONG).show()
+            else -> {
+                keyInput.setText(key)
+                Toast.makeText(this, "Key pasted -- tap Save", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /** One live request (of the free 25/day) so a mistyped or unactivated key shows up now, not at the next hourly check. */
+    private fun checkKey(key: String) {
+        CoroutineScope(Dispatchers.Main).launch {
+            statusText.text = "Checking your key..."
+            val result = withContext(Dispatchers.IO) { runCatching { fetchLiveRate(key) } }
+            statusText.text = result.fold(
+                { "Key works -- live rate %.4f.".format(Locale.UK, it) },
+                { "Key check failed: ${it.message}" }
+            )
+        }
     }
 
     private fun sendTestAlert() {

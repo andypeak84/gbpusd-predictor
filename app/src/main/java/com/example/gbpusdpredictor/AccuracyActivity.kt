@@ -153,29 +153,93 @@ class AccuracyActivity : AppCompatActivity() {
             val weight = com.example.gbpusdpredictor.sentiment.SentimentRepository.weight(this@AccuracyActivity)
             val fullStrength = com.example.gbpusdpredictor.sentiment.SentimentRepository.fullStrengthStories(this@AccuracyActivity)
             val maxAgeS = (com.example.gbpusdpredictor.sentiment.SentimentAdjustment.MAX_AGE_HOURS * 3600).toLong()
-            val newsTilt: Map<java.time.LocalDate, Double> = scored.mapNotNull { s ->
+            // The news reading each forecast would have used (score, story count), found once; the tilt itself is then
+            // recomputed for any weight / full-strength pair, so the sweet-spot scan below can try them all.
+            val readings: Map<java.time.LocalDate, Pair<Double, Int>> = scored.mapNotNull { s ->
                 val cutoff = s.matchedActualDate.atTime(13, 15).toEpochSecond(java.time.ZoneOffset.UTC)
                 val reading = history.lastOrNull { it.first < cutoff } ?: return@mapNotNull null
                 if (cutoff - reading.first > maxAgeS) return@mapNotNull null
-                s.forecastDate to com.example.gbpusdpredictor.sentiment.SentimentAdjustment.tilt(
-                    reading.second, reading.third, sd1, weight, fullStrength)
+                s.forecastDate to (reading.second to reading.third)
             }.toMap()
+            fun tiltsFor(w: Double, fs: Int) = readings.mapValues { (_, r) ->
+                com.example.gbpusdpredictor.sentiment.SentimentAdjustment.tilt(r.first, r.second, sd1, w, fs)
+            }
+            val newsTilt = tiltsFor(weight, fullStrength)
             val withNews = scored.filter { it.forecastDate in newsTilt }
-            fun newsHit(s: PredictionScorer.ScoredForecast) =
-                ((s.predictedChangePct + newsTilt.getValue(s.forecastDate)) >= 0.0) == (s.actualChangePct >= 0.0)
+            fun hitWith(s: PredictionScorer.ScoredForecast, tilt: Double) =
+                ((s.predictedChangePct + tilt) >= 0.0) == (s.actualChangePct >= 0.0)
+            fun newsHit(s: PredictionScorer.ScoredForecast) = hitWith(s, newsTilt.getValue(s.forecastDate))
+            // News effect monitor: did the tilt move the forecast % TOWARDS the actual % (helped) or away (hurt)?
+            fun effect(s: PredictionScorer.ScoredForecast): Int {
+                val tilt = newsTilt[s.forecastDate] ?: return 0
+                if (kotlin.math.abs(tilt) < 0.00005) return 0
+                val before = kotlin.math.abs(s.predictedChangePct - s.actualChangePct)
+                val after = kotlin.math.abs(s.predictedChangePct + tilt - s.actualChangePct)
+                return if (after < before) 1 else -1
+            }
             newsView.text = if (withNews.isEmpty()) {
                 "With news sentiment: no forecasts yet with a news reading from before their target day (history began 21 Oct 2026)."
             } else {
+                val n = withNews.size
                 val hitsNews = withNews.count { newsHit(it) }
                 val hitsModel = withNews.count { it.directionHit }
-                "With news sentiment: direction correct $hitsNews/${withNews.size} " +
-                    "(${"%.0f".format(Locale.UK, 100.0 * hitsNews / withNews.size)}%) · model alone on the same " +
-                    "${withNews.size}: $hitsModel/${withNews.size}. Uses your current news weight (${"%.2f".format(Locale.UK, weight)})."
+                val helped = withNews.count { effect(it) > 0 }
+                val hurt = withNews.count { effect(it) < 0 }
+                val avgTilt = withNews.sumOf { kotlin.math.abs(newsTilt.getValue(it.forecastDate)) } / n
+                val errModel = withNews.sumOf { kotlin.math.abs(it.predictedChangePct - it.actualChangePct) } / n
+                val errNews = withNews.sumOf {
+                    kotlin.math.abs(it.predictedChangePct + newsTilt.getValue(it.forecastDate) - it.actualChangePct)
+                } / n
+                fun pct(x: Double) = "%.3f%%".format(Locale.UK, x * 100)
+                "With news sentiment: direction correct $hitsNews/$n " +
+                    "(${"%.0f".format(Locale.UK, 100.0 * hitsNews / n)}%) · model alone on the same $n: $hitsModel/$n. " +
+                    "Uses your current news weight (${"%.2f".format(Locale.UK, weight)}, full strength at $fullStrength stories).\n" +
+                    "News effect: average size ±${pct(avgTilt)} · moved the forecast towards the actual move $helped time(s), " +
+                    "away $hurt time(s) · average % error ${pct(errModel)} model alone vs ${pct(errNews)} with news."
+            }
+
+            // Sweet spot: try every weight (0 to the slider's max in 0.05 steps) x full-strength story count on the same
+            // forecasts and rank by direction hits, then by smaller average % error. Weight 0 = the model alone.
+            if (withNews.isNotEmpty()) {
+                data class Trial(val w: Double, val fs: Int, val hits: Int, val err: Double)
+                fun trial(w: Double, fs: Int): Trial {
+                    val t = tiltsFor(w, fs)
+                    return Trial(w, fs, withNews.count { hitWith(it, t.getValue(it.forecastDate)) },
+                        withNews.sumOf { kotlin.math.abs(it.predictedChangePct + t.getValue(it.forecastDate) - it.actualChangePct) } / withNews.size)
+                }
+                val maxW = com.example.gbpusdpredictor.sentiment.SentimentAdjustment.MAX_WEIGHT_OF_HORIZON_SD
+                val trials = withContext(Dispatchers.Default) {
+                    (0..(maxW / 0.05).toInt()).flatMap { i ->
+                        (1..com.example.gbpusdpredictor.sentiment.SentimentAdjustment.MAX_FULL_STRENGTH_STORIES).map { fs -> trial(i * 5 / 100.0, fs) }
+                    }
+                }
+                val best = trials.sortedWith(compareByDescending<Trial> { it.hits }.thenBy { it.err }).first()
+                val mine = trial(weight, fullStrength)
+                val n = withNews.size
+                fun line(t: Trial) = "weight ${"%.2f".format(Locale.UK, t.w)}, full strength at ${t.fs} stories: " +
+                    "${t.hits}/$n hits, average error ${"%.3f".format(Locale.UK, t.err * 100)}%"
+                root.addView(TextView(this@AccuracyActivity).apply {
+                    textSize = 13f
+                    setPadding(24, 0, 24, 4)
+                    text = "News sweet spot (tested on $n forecast(s)):\nBest: ${line(best)}\nYours: ${line(mine)}" +
+                        if (n < 20) "\nSmall sample -- treat this as a hint, not a setting to trust yet. It firms up as more days are scored." else ""
+                }, 4)
+                if (kotlin.math.abs(best.w - weight) > 0.001 || best.fs != fullStrength) {
+                    root.addView(android.widget.Button(this@AccuracyActivity).apply {
+                        text = "Use best news settings"
+                        setOnClickListener {
+                            com.example.gbpusdpredictor.sentiment.SentimentRepository.setWeight(this@AccuracyActivity, best.w)
+                            com.example.gbpusdpredictor.sentiment.SentimentRepository.setFullStrengthStories(this@AccuracyActivity, best.fs)
+                            android.widget.Toast.makeText(this@AccuracyActivity, "News settings updated", android.widget.Toast.LENGTH_SHORT).show()
+                            recreate()
+                        }
+                    }, 5)
+                }
             }
 
             addRow(
                 rows,
-                listOf("From", "Target", "Base", "Predicted", "Actual", "Pred Δ%", "Actual Δ%", "Direction", "News tilt", "With news"),
+                listOf("From", "Target", "Base", "Predicted", "Actual", "Pred Δ%", "Actual Δ%", "Direction", "News tilt", "With news", "News effect"),
                 bold = true,
                 color = null
             )
@@ -192,13 +256,24 @@ class AccuracyActivity : AppCompatActivity() {
                         "%+.2f%%".format(Locale.UK, s.actualChangePct * 100),
                         if (s.directionHit) "✓ hit" else "✗ miss",
                         newsTilt[s.forecastDate]?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—",
-                        if (s.forecastDate !in newsTilt) "—" else if (newsHit(s)) "✓ hit" else "✗ miss"
+                        if (s.forecastDate !in newsTilt) "—" else if (newsHit(s)) "✓ hit" else "✗ miss",
+                        when {
+                            s.forecastDate !in newsTilt -> "—"
+                            effect(s) > 0 -> "▲ helped"
+                            effect(s) < 0 -> "▼ hurt"
+                            else -> "· none"
+                        }
                     ),
                     bold = false,
                     color = if (s.directionHit) Color.parseColor("#12B886") else Color.parseColor("#E5484D"),
-                    cellColors = if (s.forecastDate !in newsTilt) mapOf(8 to Color.GRAY, 9 to Color.GRAY) else {
+                    cellColors = if (s.forecastDate !in newsTilt) mapOf(8 to Color.GRAY, 9 to Color.GRAY, 10 to Color.GRAY) else {
                         val c = if (newsHit(s)) Color.parseColor("#12B886") else Color.parseColor("#E5484D")
-                        mapOf(8 to c, 9 to c)
+                        val e = when {
+                            effect(s) > 0 -> Color.parseColor("#12B886")
+                            effect(s) < 0 -> Color.parseColor("#E5484D")
+                            else -> Color.GRAY
+                        }
+                        mapOf(8 to c, 9 to c, 10 to e)
                     }
                 )
             }
