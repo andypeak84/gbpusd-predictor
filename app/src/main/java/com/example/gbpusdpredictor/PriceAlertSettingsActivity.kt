@@ -39,6 +39,7 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
     private lateinit var lowerInput: EditText
     private lateinit var movePctInput: EditText
     private lateinit var statusText: TextView
+    private lateinit var liveText: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,10 +77,16 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
             text = "Paste key"
             setOnClickListener { pasteKey() }
         })
+        keyRow.addView(Button(this).apply {
+            text = "Change key"
+            setOnClickListener { unlockKey() }
+        })
         root.addView(keyRow)
+        liveText = TextView(this).apply { textSize = 16f; setPadding(0, 8, 0, 8) }
+        root.addView(liveText)
         root.addView(TextView(this).apply {
             text = "1. Tap Get a free key, enter your email and press GET FREE API KEY.\n" +
-                "2. Copy the key it shows, come back and tap Paste key, then Save (Save checks the key works).\n" +
+                "2. Copy the key it shows, come back and tap Paste key. It is saved, checked and locked straight away, with the live rate shown above.\n" +
                 "The key stays on this device and is only sent to Alpha Vantage. Alerts need a key; the daily forecast does not."
             textSize = 12f
             setPadding(0, 4, 0, 16)
@@ -130,6 +137,8 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
 
         loadSettings()
         refreshStatus()
+        val savedKey = with(PriceAlertPrefs) { alphaVantageKey }
+        if (savedKey.isNotEmpty()) checkKey(savedKey)
     }
 
     private fun loadSettings() {
@@ -154,7 +163,6 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
         val movePct = movePctInput.text.toString().trim().toDoubleOrNull()?.div(100.0)
         val key = cleanKey(keyInput.text.toString())
         keyInput.setText(key)
-        val keyChanged = key.isNotEmpty() && key != with(PriceAlertPrefs) { alphaVantageKey }
         val enabled = enabledCheckbox.isChecked && key.isNotEmpty()
         if (enabledCheckbox.isChecked && key.isEmpty()) {
             enabledCheckbox.isChecked = false
@@ -177,7 +185,7 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
 
         Toast.makeText(this, if (enabled) "Price alerts enabled" else "Price alerts disabled", Toast.LENGTH_SHORT).show()
         refreshStatus()
-        if (keyChanged) checkKey(key)
+        if (key.isNotEmpty()) checkKey(key)
     }
 
     private fun openKeyPage() {
@@ -202,21 +210,43 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
                 Toast.makeText(this, "The copied text doesn't look like a key (letters and digits only)", Toast.LENGTH_LONG).show()
             else -> {
                 keyInput.setText(key)
-                Toast.makeText(this, "Key pasted -- tap Save", Toast.LENGTH_SHORT).show()
+                with(PriceAlertPrefs) { alphaVantageKey = key }
+                checkKey(key)
             }
         }
     }
 
-    /** One live request (of the free 25/day) so a mistyped or unactivated key shows up now, not at the next hourly check. */
+    /**
+     * One live request (of the free 25/day) so a mistyped or unactivated key shows up now, not at the next hourly check.
+     * A key that works is locked (field read-only) and its rate shown and recorded as the baseline for the hourly-move
+     * trigger; "Change key" unlocks it.
+     */
     private fun checkKey(key: String) {
         CoroutineScope(Dispatchers.Main).launch {
-            statusText.text = "Checking your key..."
+            liveText.text = "Checking your key..."
             val result = withContext(Dispatchers.IO) { runCatching { fetchLiveRate(key) } }
-            statusText.text = result.fold(
-                { "Key works -- live rate %.4f.".format(Locale.UK, it) },
-                { "Key check failed: ${it.message}" }
-            )
+            result.onSuccess { rate ->
+                with(PriceAlertPrefs) {
+                    lastHourlyRate = rate
+                    lastHourlyRateUtc = java.time.Instant.now().toString()
+                    lastFetchAttemptUtc = java.time.Instant.now().toString()
+                    lastFetchOutcome = "OK"
+                }
+                keyInput.isEnabled = false
+                liveText.text = "Key locked. Live GBP/USD: %.4f (%s UTC)".format(
+                    Locale.UK, rate, java.time.LocalTime.now(java.time.ZoneOffset.UTC).toString().take(5))
+                refreshStatus()
+            }.onFailure { e ->
+                keyInput.isEnabled = true
+                liveText.text = "Key check failed: ${e.message}"
+            }
         }
+    }
+
+    private fun unlockKey() {
+        keyInput.isEnabled = true
+        keyInput.requestFocus()
+        liveText.text = "Key unlocked -- paste or type a new one."
     }
 
     private fun sendTestAlert() {

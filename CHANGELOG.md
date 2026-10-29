@@ -4,6 +4,13 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v91 — price-alert key locks and shows a live rate at once — 2026-10-29
+
+Price Alerts: pasting (or saving) a key now stores it, makes one live request, locks the key field and shows
+"Key locked. Live GBP/USD: x.xxxx (hh:mm UTC)"; the rate is also recorded as the hourly-move baseline and fills the
+"Last hourly check" status, which used to read "never" for the first hour. "Change key" unlocks the field. A saved key is
+re-checked whenever the screen opens.
+
 ## v90 — easier Alpha Vantage key entry for price alerts — 2026-10-28
 
 Price Alerts settings: a "Get a free key" button opens Alpha Vantage's key page (email-only form, key shown at once), a

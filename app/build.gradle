@@ -45,14 +45,14 @@ android {
         applicationId "com.andypeak.gbpusdpredictor"
         minSdk 26
         targetSdk 36
-        versionCode 90
+        versionCode 91
         // Synced to the newgdp-vNN zip numbering this project ships under (see
         // MainActivity.kt, which shows this on-screen) -- bump both this and versionCode
         // above together on every delivered zip from here on. Jumped 63 -> 65 (skipping
         // 64) because the prior oilChange5d anchor-tolerance fix shipped without this
         // bump -- the phone kept showing v63 despite that fix being live, real confusion
         // during a live debugging session. Never skip this again.
-        versionName "90"
+        versionName "91"
 
         testApplicationId "com.andypeak.gbpusdpredictor.test"
 
