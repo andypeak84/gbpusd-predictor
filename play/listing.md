@@ -7,7 +7,7 @@
 **Price:** Free, contains ads
 
 ## Short description (max 80)
-A daily statistical forecast for the pound against the dollar, with its own track record.
+A daily pound-vs-dollar forecast, with its own track record shown.
 
 ## Full description (max 4000)
 GBP/USD Predictor gives you a daily, 1-to-7-day statistical forecast for the pound against the US dollar, and shows
@@ -42,6 +42,6 @@ US Energy Information Administration as a fallback, Bank of England.
 First public release.
 
 ## Graphics checklist
-- [ ] App icon 512x512 PNG (from the existing icon artwork; only a 192 px version is in the project)
-- [ ] Feature graphic 1024x500
-- [ ] Phone screenshots, at least 2 (aim for 4-6): main forecast, news-sentiment controls, Accuracy, Diagnostics
+- [x] App icon 512x512 PNG (uploaded 2026-10-29)
+- [x] Feature graphic 1024x500 (uploaded 2026-10-29)
+- [ ] Phone screenshots, at least 2 (aim for 4-6): main forecast, news-sentiment controls, Accuracy, Diagnostics. Max aspect ratio 2:1 (crop 1080x2424 phone shots to 1080x2160), no 'Test Ad' banners, and never show the Price Alerts key field. The old play/graphics/screenshots are v76 with test ads: retake.
