@@ -4,6 +4,11 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v92 — release rebuild for Play — 2026-10-29
+
+No code change from v91. Play had already used version code 91 for this app, so the build is renumbered 92 and signed with
+the Linkup League upload key (the key Play has registered for this app).
+
 ## v91 — price-alert key locks and shows a live rate at once — 2026-10-29
 
 Price Alerts: pasting (or saving) a key now stores it, makes one live request, locks the key field and shows
