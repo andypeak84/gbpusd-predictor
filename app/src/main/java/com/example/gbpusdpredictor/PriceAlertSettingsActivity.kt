@@ -197,8 +197,7 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
         }
     }
 
-    /** Copied keys often carry a trailing space, a newline or quotes; Alpha Vantage keys are letters and digits only. */
-    private fun cleanKey(raw: String) = raw.trim().trim('"', '\'', '`').trim()
+    private fun cleanKey(raw: String) = com.example.gbpusdpredictor.work.ApiKeyFormat.clean(raw)
 
     private fun pasteKey() {
         val clip = (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).primaryClip
@@ -206,7 +205,7 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
         val key = text?.let { cleanKey(it) }.orEmpty()
         when {
             key.isEmpty() -> Toast.makeText(this, "Nothing copied yet -- copy the key on the Alpha Vantage page first", Toast.LENGTH_LONG).show()
-            !key.matches(Regex("[A-Za-z0-9]{8,40}")) ->
+            !com.example.gbpusdpredictor.work.ApiKeyFormat.looksValid(key) ->
                 Toast.makeText(this, "The copied text doesn't look like a key (letters and digits only)", Toast.LENGTH_LONG).show()
             else -> {
                 keyInput.setText(key)

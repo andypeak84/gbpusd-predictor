@@ -1,6 +1,9 @@
 package com.example.gbpusdpredictor.work
 
 import android.content.Context
+import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
 
 /**
  * Settings + state for the hourly price-alert feature (PriceAlertWorker/Scheduler),
@@ -26,11 +29,53 @@ object PriceAlertPrefs {
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    // The key lives in its own encrypted file (AES-256, master key in the Android Keystore), which is also
+    // excluded from cloud backup (res/xml/backup_rules.xml and data_extraction_rules.xml): a restored copy on a new
+    // phone could not be decrypted. If the Keystore is unavailable the key falls back to the plain prefs file,
+    // so alerts keep working rather than losing the key.
+    private const val SECURE_PREFS_NAME = "price_alert_secure"
+
+    @Volatile private var secureCache: SharedPreferences? = null
+
+    private fun securePrefs(context: Context): SharedPreferences? {
+        secureCache?.let { return it }
+        return runCatching {
+            val app = context.applicationContext
+            val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+            EncryptedSharedPreferences.create(
+                SECURE_PREFS_NAME, masterKeyAlias, app,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        }.getOrNull()?.also { secureCache = it }
+    }
+
     // The user's own free Alpha Vantage key -- entered in settings, stored only on the device. It
-    // used to be compiled into the APK, which is unsafe for a public release.
+    // used to be compiled into the APK, which is unsafe for a public release. A key saved by an older
+    // version (plain prefs) is moved into the encrypted file the first time it is read.
     var Context.alphaVantageKey: String
-        get() = prefs(this).getString(KEY_ALPHA_VANTAGE_KEY, "") ?: ""
-        set(value) = prefs(this).edit().putString(KEY_ALPHA_VANTAGE_KEY, value.trim()).apply()
+        get() {
+            val secure = securePrefs(this)
+            val plain = prefs(this).getString(KEY_ALPHA_VANTAGE_KEY, "") ?: ""
+            if (secure == null) return plain
+            val stored = secure.getString(KEY_ALPHA_VANTAGE_KEY, "") ?: ""
+            if (stored.isNotEmpty()) return stored
+            if (plain.isNotEmpty()) {
+                secure.edit().putString(KEY_ALPHA_VANTAGE_KEY, plain).apply()
+                prefs(this).edit().remove(KEY_ALPHA_VANTAGE_KEY).apply()
+            }
+            return plain
+        }
+        set(value) {
+            val key = value.trim()
+            val secure = securePrefs(this)
+            if (secure != null) {
+                secure.edit().putString(KEY_ALPHA_VANTAGE_KEY, key).apply()
+                prefs(this).edit().remove(KEY_ALPHA_VANTAGE_KEY).apply()
+            } else {
+                prefs(this).edit().putString(KEY_ALPHA_VANTAGE_KEY, key).apply()
+            }
+        }
 
     var Context.priceAlertsEnabled: Boolean
         get() = prefs(this).getBoolean(KEY_ENABLED, false)

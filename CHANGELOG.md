@@ -4,6 +4,20 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v93 — privacy link, dark mode, encrypted key, tests — 2026-10-29
+
+- **Diagnostics:** a "Privacy policy" button opens the hosted policy (Google Play expects the app itself to link to it).
+- **Dark mode:** the theme now follows the phone (Theme.AppCompat.DayNight). The few colours the screens set themselves (blue
+  "includes news" text, the chart's forecast zone, axis labels and tooltip box, the status-bar icons) have dark variants (ui/Night.kt).
+- **Alpha Vantage key:** stored in an encrypted file (AES-256, master key in the Android Keystore) and excluded from cloud backup
+  and phone-to-phone transfer (res/xml/backup_rules.xml, data_extraction_rules.xml). A key saved by v92 or earlier moves across the
+  first time it is read; if the Keystore is unavailable it falls back to the old plain file so alerts keep working.
+- **Accessibility:** the chart, the two news sliders and the repeated "Flag" buttons now have descriptions TalkBack can read (each
+  Flag button names its story).
+- **Tests:** 18 JVM unit tests (app/src/test): news tilt, forecast scoring, key cleaning. Key cleaning moved to work/ApiKeyFormat.kt.
+- **Build:** keystore.properties now points at the Linkup League upload key (the key Play has registered for this app), so
+  bundleRelease signs correctly without a manual re-sign. Old settings are backed up outside the repo.
+
 ## v92 — release rebuild for Play — 2026-10-29
 
 No code change from v91. Play had already used version code 91 for this app, so the build is renumbered 92 and signed with

@@ -28,6 +28,8 @@ class RateChartView @JvmOverloads constructor(
 
     data class Point(val date: LocalDate, val rate: Double)
 
+    private val dark = Night.isOn(context)
+
     /** One forecast line: a horizon's predicted point, the colour its day-button uses
      * (so the line and the button that toggled it are visually tied together), and a
      * short label ("1d", "7d", etc.) drawn next to its dot. */
@@ -48,11 +50,11 @@ class RateChartView @JvmOverloads constructor(
     }
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val axisPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#9AA4B2")
+        color = Color.parseColor(if (dark) "#5A6472" else "#9AA4B2")
         strokeWidth = 2f
     }
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#6B7280")
+        color = Color.parseColor(if (dark) "#AAB2BF" else "#6B7280")
         textSize = 26f
     }
     private val emptyStatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -78,12 +80,12 @@ class RateChartView @JvmOverloads constructor(
     // visible. History is spaced by trading day inside the rest; forecasts are spaced by calendar day inside this zone.
     private val forecastFraction = 0.30f
 
-    private val zonePaint = Paint().apply { color = Color.parseColor("#F1F5FB"); style = Paint.Style.FILL }
+    private val zonePaint = Paint().apply { color = Color.parseColor(if (dark) "#1D2430" else "#F1F5FB"); style = Paint.Style.FILL }
     private val refLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#9AA4B2"); strokeWidth = 2f; style = Paint.Style.STROKE
         pathEffect = DashPathEffect(floatArrayOf(8f, 8f), 0f)
     }
-    private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.FILL }
+    private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor(if (dark) "#252B36" else "#FFFFFF"); style = Paint.Style.FILL }
     private val boxStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 3f }
     private val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 30f; isFakeBoldText = true }
 

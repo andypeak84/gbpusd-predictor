@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and older: keep the encrypted Alpha Vantage key out of backups (a restored copy could not be decrypted). -->
+<full-backup-content>
+    <exclude domain="sharedpref" path="price_alert_secure.xml" />
+</full-backup-content>

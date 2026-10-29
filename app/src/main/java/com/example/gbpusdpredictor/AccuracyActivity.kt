@@ -61,7 +61,7 @@ class AccuracyActivity : AppCompatActivity() {
 
         val newsView = TextView(this).apply {
             textSize = 13f
-            setTextColor(Color.parseColor("#1C64C8"))
+            setTextColor(com.example.gbpusdpredictor.ui.Night.accentBlue(this@AccuracyActivity))
             setPadding(24, 0, 24, 8)
         }
         root.addView(newsView)

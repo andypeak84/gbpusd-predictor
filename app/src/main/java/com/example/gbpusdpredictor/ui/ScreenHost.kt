@@ -22,10 +22,10 @@ object ScreenHost {
     fun install(activity: AppCompatActivity, content: View) {
         WindowCompat.setDecorFitsSystemWindows(activity.window, false)
         // Edge-to-edge draws the app behind the system bars; the app has a light background, so the
-        // status/navigation bar icons must be dark or the clock and battery vanish (white on light).
+        // status/navigation bar icons must be dark or the clock and battery vanish (white on light); in dark mode they are light.
         WindowCompat.getInsetsController(activity.window, activity.window.decorView).apply {
-            isAppearanceLightStatusBars = true
-            isAppearanceLightNavigationBars = true
+            isAppearanceLightStatusBars = !Night.isOn(activity)
+            isAppearanceLightNavigationBars = !Night.isOn(activity)
         }
 
         val adHolder = FrameLayout(activity)

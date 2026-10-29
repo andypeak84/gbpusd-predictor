@@ -45,14 +45,14 @@ android {
         applicationId "com.andypeak.gbpusdpredictor"
         minSdk 26
         targetSdk 36
-        versionCode 92
+        versionCode 93
         // Synced to the newgdp-vNN zip numbering this project ships under (see
         // MainActivity.kt, which shows this on-screen) -- bump both this and versionCode
         // above together on every delivered zip from here on. Jumped 63 -> 65 (skipping
         // 64) because the prior oilChange5d anchor-tolerance fix shipped without this
         // bump -- the phone kept showing v63 despite that fix being live, real confusion
         // during a live debugging session. Never skip this again.
-        versionName "92"
+        versionName "93"
 
         testApplicationId "com.andypeak.gbpusdpredictor.test"
 
@@ -132,6 +132,12 @@ dependencies {
     // via play-services-ads-api, so no separate UMP dependency is declared. Needs Kotlin >= 2.2 (the SDK
     // is built with Kotlin 2.3 metadata), hence the Kotlin 2.3.21 plugin in the root build.gradle.
     implementation 'com.google.android.gms:play-services-ads:25.5.0'
+
+    // Encrypted storage for the user's Alpha Vantage key (work/PriceAlertPrefs).
+    implementation 'androidx.security:security-crypto:1.0.0'
+
+    // JVM unit tests (app/src/test): the pure logic -- news tilt, forecast scoring, key cleaning.
+    testImplementation 'junit:junit:4.13.2'
 
     // No ML runtime dependency needed: the tree model is evaluated by walking a plain
     // JSON structure (see ml/TreeModelPredictor.kt) using org.json, built into Android.

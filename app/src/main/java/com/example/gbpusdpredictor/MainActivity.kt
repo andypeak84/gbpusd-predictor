@@ -325,6 +325,8 @@ class MainActivity : AppCompatActivity() {
         addSpacer(detailSection)
 
         chartView = RateChartView(this@MainActivity).apply {
+            // A custom-drawn chart is invisible to TalkBack unless it is described.
+            contentDescription = "Line chart of the GBP/USD rate over recent weeks, with the forecast shown as a dashed line"
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 (280 * resources.displayMetrics.density).toInt()
@@ -481,7 +483,7 @@ class MainActivity : AppCompatActivity() {
                 button.setTextColor(Color.WHITE)
             } else {
                 button.background = null
-                button.setTextColor(Color.BLACK)
+                button.setTextColor(predictionDefaultColor)
             }
         }
     }
@@ -525,9 +527,15 @@ class MainActivity : AppCompatActivity() {
             visibility = if (checkbox.isChecked) View.VISIBLE else View.GONE
         }
         val weightLabel = TextView(this).apply { textSize = 13f }
-        val weightBar = SeekBar(this).apply { max = Math.round(SentimentAdjustment.MAX_WEIGHT_OF_HORIZON_SD * 100).toInt() }
+        val weightBar = SeekBar(this).apply {
+            max = Math.round(SentimentAdjustment.MAX_WEIGHT_OF_HORIZON_SD * 100).toInt()
+            contentDescription = "News weight slider: how strongly news moves the forecast"
+        }
         val storiesLabel = TextView(this).apply { textSize = 13f; setPadding(0, 8, 0, 0) }
-        val storiesBar = SeekBar(this).apply { max = SentimentAdjustment.MAX_FULL_STRENGTH_STORIES - 1 }
+        val storiesBar = SeekBar(this).apply {
+            max = SentimentAdjustment.MAX_FULL_STRENGTH_STORIES - 1
+            contentDescription = "Full strength slider: how many stories are needed for the full news effect"
+        }
         fun syncControls() {
             val weight = SentimentRepository.weight(this)
             val stories = SentimentRepository.fullStrengthStories(this)
@@ -614,11 +622,13 @@ class MainActivity : AppCompatActivity() {
                     append("${arrow(h.direction)} ${h.source}: ${h.displayText}")
                     if (mine != null) append("   [your flag: ${arrow(mine)}]")
                 }
-                if (mine != null && mine != h.direction) setTextColor(Color.parseColor("#1C64C8"))
+                if (mine != null && mine != h.direction) setTextColor(com.example.gbpusdpredictor.ui.Night.accentBlue(this@MainActivity))
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
             row.addView(Button(this).apply {
                 text = if (mine == null) "Flag" else "Flagged"
+                // Every row says just "Flag"; TalkBack needs to know which story it belongs to.
+                contentDescription = (if (mine == null) "Flag story: " else "Change your flag on story: ") + h.displayText.take(100)
                 textSize = 11f
                 minWidth = 0
                 minimumWidth = 0
@@ -748,7 +758,7 @@ class MainActivity : AppCompatActivity() {
                 SentimentRepository.isEnabled(this) -> "$base\n(model only — no recent news reading)"
                 else -> "$base\n(model only)"
             }
-            predictionLine.setTextColor(if (sentiment != null) Color.parseColor("#1565C0") else predictionDefaultColor)
+            predictionLine.setTextColor(if (sentiment != null) com.example.gbpusdpredictor.ui.Night.accentBlue(this) else predictionDefaultColor)
             // Cutoff scales with this horizon's own typical move size (see
             // TreeModelPredictor.adviceCutoffPctFor's own comment) -- falls back to the
             // original fixed 0.15% for a model with no horizon_sd block.
@@ -771,7 +781,7 @@ class MainActivity : AppCompatActivity() {
                 "${days}d (${targetDateFor(days)}): ${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)" +
                     sentimentNote(days, changePct)
             }
-            predictionLine.setTextColor(if (sentiment != null) Color.parseColor("#1565C0") else predictionDefaultColor)
+            predictionLine.setTextColor(if (sentiment != null) com.example.gbpusdpredictor.ui.Night.accentBlue(this) else predictionDefaultColor)
             recommendationLine.text = "Comparing ${predictions.size} horizons — matching colours on the chart above and the day buttons below." +
                 if (sentiment != null) "  ★ = includes news sentiment." else "  (model only)"
         }

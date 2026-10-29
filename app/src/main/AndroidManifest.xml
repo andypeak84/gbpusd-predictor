@@ -10,11 +10,13 @@
     <application
         android:name=".GbpUsdPredictorApp"
         android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="GBP/USD Predictor"
         android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.Light">
+        android:theme="@style/Theme.AppCompat.DayNight">
 
         <!-- AdMob app id: Google's test id in debug builds, the real one in release (see app/build.gradle). -->
         <meta-data

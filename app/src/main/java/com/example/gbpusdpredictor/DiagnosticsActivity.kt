@@ -6,6 +6,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.example.gbpusdpredictor.ads.ConsentManager
 import com.example.gbpusdpredictor.ui.ScreenHost
@@ -37,6 +38,8 @@ class DiagnosticsActivity : AppCompatActivity() {
         root.addView(button("Data fetch log") {
             startActivity(Intent(this, BootstrapLogActivity::class.java))
         })
+        // Google Play expects the app itself, not just the store listing, to point at the privacy policy.
+        root.addView(button("Privacy policy") { openPrivacyPolicy() })
         if (ConsentManager.privacyOptionsRequired(this)) {
             root.addView(button("Privacy & ad choices") { ConsentManager.showPrivacyOptions(this) })
         }
@@ -57,10 +60,21 @@ class DiagnosticsActivity : AppCompatActivity() {
 
     private fun button(label: String, onClick: () -> Unit) = Button(this).apply {
         text = label
+        contentDescription = label
         setOnClickListener { onClick() }
     }
 
+    private fun openPrivacyPolicy() {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(PRIVACY_POLICY_URL)))
+        } catch (e: android.content.ActivityNotFoundException) {
+            Toast.makeText(this, "No browser found -- visit $PRIVACY_POLICY_URL", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private companion object {
+        const val PRIVACY_POLICY_URL = "https://andypeak84.github.io/gbpusd-predictor/privacy-policy.html"
+
         const val CREDITS = """Data sources
 
 • Exchange rates (GBP/USD and the other currency pairs): European Central Bank reference rates, via Frankfurter (frankfurter.dev).
