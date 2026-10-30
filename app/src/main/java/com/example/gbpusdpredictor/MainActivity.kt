@@ -238,7 +238,7 @@ class MainActivity : AppCompatActivity() {
             addLine(container, "GBP/USD Predictor", 22f, Gravity.START, bold = true)
             // versionName is now synced to the newgdp-vNN zip numbering this project ships
             // under (see app/build.gradle) -- bump both together on every delivered zip.
-            addLine(container, "v${BuildConfig.VERSION_NAME}", 11f, Gravity.START)
+            addLine(container, "v${BuildConfig.VERSION_NAME}" + if (BuildConfig.TEST_ADS) "  ·  closed-test build: test ads only" else "", 11f, Gravity.START)
             // Permanent, on the first screen (Google Play's finance policy and basic honesty: the
             // forecasts are about 50% right in the app's own Accuracy screen).
             addLine(container, "Informational only. Not financial advice. Forecasts are statistical estimates and are often wrong.", 11f, Gravity.START)

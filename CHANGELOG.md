@@ -15,6 +15,11 @@ reference with how far the live rate has moved against it. The £ amount line co
 - The only live source is your own Alpha Vantage key. With no key (or the day's budget spent) the screen shows the daily ECB rate and
   says so. A keyless live source (Kraken's public ticker) was built and then removed the same day: its terms forbid making its prices
   available to third parties or in third-party apps without written consent. 7 new unit tests.
+- **Closed-test ads build.** `bundleRelease -PclosedTestAds=true` makes a release bundle that serves Google's TEST ads to everyone (testers
+  could otherwise see, and tap, REAL ads from the AdMob account, which AdMob treats as invalid traffic) and skips the consent gate, which
+  test ads do not need (so UK/EEA testers still see ads). It labels itself "closed-test build: test ads only" under the version. Upload
+  THAT file to closed testing; build production without the flag and with a higher versionCode (95+). Both variants are verified by
+  reading the app id and banner id out of the bundle.
 
 ## v93 — privacy link, dark mode, encrypted key, tests — 2026-10-29
 

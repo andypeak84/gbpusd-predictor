@@ -28,6 +28,14 @@ object ConsentManager {
 
     /** Runs [onReady] at most once, on the main thread, as soon as ads may be requested. */
     fun whenAdsAllowed(activity: Activity, onReady: () -> Unit) {
+        // Closed-testing build (BuildConfig.TEST_ADS, built with -PclosedTestAds): only Google's test ads are ever requested, which use
+        // no personal data, so there is nothing to consent to. Skipping the gate also means testers in the UK/EEA see test ads even though
+        // Google's test app id has no consent message behind it.
+        if (BuildConfig.TEST_ADS) {
+            initialiseMobileAdsOnce(activity.applicationContext)
+            onReady()
+            return
+        }
         val consentInfo = UserMessagingPlatform.getConsentInformation(activity)
         val delivered = AtomicBoolean(false)
         fun deliverIfAllowed() {
