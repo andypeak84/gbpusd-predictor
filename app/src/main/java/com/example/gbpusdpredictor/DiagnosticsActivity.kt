@@ -78,7 +78,7 @@ class DiagnosticsActivity : AppCompatActivity() {
         const val CREDITS = """Data sources
 
 • Exchange rates (GBP/USD and the other currency pairs): European Central Bank reference rates, via Frankfurter (frankfurter.dev).
-• Live GBP/USD quote (shown as "Live rate"): Alpha Vantage using your own free key, or, if you have no key or its daily limit is used, Kraken's public market-data API (no account). Both are labelled on screen; the forecast and its scoring use the daily ECB rate above.
+• Live GBP/USD quote (shown as "Live rate"): Alpha Vantage, using your own free key. Without a key the app shows the daily ECB rate above, labelled as such; the forecast and its scoring always use that daily rate.
 • US 2-year Treasury yield: U.S. Department of the Treasury, daily par yield curve.
 • VIX and other US market series: this product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.
 • Crude oil (Brent): OilPriceAPI (https://www.oilpriceapi.com/); the U.S. Energy Information Administration (EIA) series is used as a fallback.

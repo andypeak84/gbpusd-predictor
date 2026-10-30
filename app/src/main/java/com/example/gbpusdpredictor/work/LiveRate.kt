@@ -1,8 +1,6 @@
 package com.example.gbpusdpredictor.work
 
 import android.content.Context
-import com.example.gbpusdpredictor.network.KrakenApi
-import com.example.gbpusdpredictor.network.KrakenParser
 import com.example.gbpusdpredictor.work.PriceAlertPrefs.alphaVantageKey
 import com.example.gbpusdpredictor.work.PriceAlertPrefs.priceAlertsEnabled
 import java.time.Duration
@@ -14,17 +12,15 @@ import java.time.ZoneOffset
  * all read and write THIS, so a quote paid for once is reused everywhere. That matters because Alpha Vantage's free tier is 25
  * requests a day and the hourly alert worker alone can use 24: every fetch goes through [fetchAlphaVantage], which counts it.
  *
- * Source order when the cached reading is stale: the user's Alpha Vantage key (only while today's shared counter is under
- * [AV_DAILY_CAP]), then Kraken's keyless public ticker, then nothing (the screens fall back to the daily ECB rate and say so).
+ * The only live source is the user's own Alpha Vantage key, used while today's shared counter is under [AV_DAILY_CAP]. With no key
+ * (or the budget spent) there is no live reading and the screens show the daily ECB rate, labelled as such. A keyless live source was
+ * tried and dropped: Kraken's terms forbid making its prices available to third parties and third-party apps without written consent.
  * The forecast and its scoring stay tied to the DAILY reference rate; this is for showing where the pound is now.
  */
 object LiveRate {
-    enum class Source(val label: String) { ALPHA_VANTAGE("Alpha Vantage"), KRAKEN("Kraken") }
+    enum class Source(val label: String) { ALPHA_VANTAGE("Alpha Vantage") }
 
     data class Reading(val rate: Double, val at: Instant, val source: Source)
-
-    /** One switch for the keyless fallback (a third party; see the privacy policy and Diagnostics credits). */
-    const val KRAKEN_ENABLED = true
 
     /** Alpha Vantage allows 25 a day; one is left spare. The hourly alert worker alone can spend 24. */
     const val AV_DAILY_CAP = 24
@@ -47,10 +43,9 @@ object LiveRate {
     fun isFresh(reading: Reading, now: Instant, maxAge: Duration): Boolean =
         !reading.at.isAfter(now) && Duration.between(reading.at, now) <= maxAge
 
-    fun sourceOrder(hasKey: Boolean, avCallsToday: Int, krakenEnabled: Boolean = KRAKEN_ENABLED): List<Source> = buildList {
-        if (hasKey && avCallsToday < AV_DAILY_CAP) add(Source.ALPHA_VANTAGE)
-        if (krakenEnabled) add(Source.KRAKEN)
-    }
+    /** The sources to try, best first: Alpha Vantage only with a key and budget left; otherwise nothing (the screens show the daily rate). */
+    fun sourceOrder(hasKey: Boolean, avCallsToday: Int): List<Source> =
+        if (hasKey && avCallsToday < AV_DAILY_CAP) listOf(Source.ALPHA_VANTAGE) else emptyList()
 
     fun dayKey(now: Instant): String = now.atZone(ZoneOffset.UTC).toLocalDate().toString()
 
@@ -102,14 +97,10 @@ object LiveRate {
         return rate
     }
 
-    private suspend fun fetchKraken(context: Context): Reading? {
-        val rate = KrakenParser.midRate(KrakenApi.service.ticker()) ?: return null
-        return record(context, rate, Source.KRAKEN)
-    }
-
     /**
-     * The best live reading available now: the cache if fresh, otherwise one fetch down the source order. Returns a cached reading up
-     * to 12 h old if every source fails (its age is shown), or null so the caller shows the daily rate labelled as such.
+     * The best live reading available now: the cache if fresh, otherwise one Alpha Vantage fetch if the user has a key and budget left.
+     * Returns a cached reading up to 12 h old if the fetch fails (its age is shown), or null so the caller shows the daily rate
+     * labelled as such.
      */
     suspend fun current(context: Context, now: Instant = Instant.now()): Reading? {
         val key = ApiKeyFormat.clean(with(PriceAlertPrefs) { context.alphaVantageKey })
@@ -120,7 +111,6 @@ object LiveRate {
             val fresh = runCatching {
                 when (source) {
                     Source.ALPHA_VANTAGE -> Reading(fetchAlphaVantage(context, key), Instant.now(), Source.ALPHA_VANTAGE)
-                    Source.KRAKEN -> fetchKraken(context)
                 }
             }.getOrNull()
             if (fresh != null) return fresh

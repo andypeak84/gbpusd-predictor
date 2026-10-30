@@ -12,9 +12,9 @@ reference with how far the live rate has moved against it. The £ amount line co
 - One shared store (work/LiveRate.kt) feeds the main screen, the Accuracy screen, the hourly alerts and the key check, so a quote is paid for
   once. Alpha Vantage's free tier is 25 calls a day: every call goes through it and is counted (capped at 24 a day; the alert worker alone
   can use 24). A reading under 15 min old (65 min when the alert worker keeps it warm) is reused.
-- Source order: your Alpha Vantage key, then Kraken's public ticker (no key; for people with no key or a spent limit), then the daily ECB
-  rate labelled as such. LiveRate.KRAKEN_ENABLED switches the keyless fallback off.
-- Privacy policy and Diagnostics credits list Kraken. 11 new unit tests (29 in all).
+- The only live source is your own Alpha Vantage key. With no key (or the day's budget spent) the screen shows the daily ECB rate and
+  says so. A keyless live source (Kraken's public ticker) was built and then removed the same day: its terms forbid making its prices
+  available to third parties or in third-party apps without written consent. 7 new unit tests.
 
 ## v93 — privacy link, dark mode, encrypted key, tests — 2026-10-29
 

@@ -36,6 +36,5 @@ own choice, to fetch the exchange rate for that user.
 - Do NOT upload an AAB built with Google's test ad ids (the build refuses to make one).
 
 ## Added with v94 (live rate)
-The app now requests a live GBP/USD quote from Alpha Vantage (user's own key) or, as a keyless fallback, Kraken's public ticker
-(api.kraken.com). Both see the device's IP address, as any website does; nothing else is sent. No change expected to the Data
-safety answers (IP address alone is not a declared data type), but re-read the form's wording before the next submission.
+The main screen now shows a live GBP/USD rate fetched with the user's own Alpha Vantage key (the same request the price alerts make, shared
+so the 25-a-day limit is respected). Without a key it shows the daily ECB rate. No new third party; no change to the Data safety answers.
