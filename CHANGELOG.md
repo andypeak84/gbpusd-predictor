@@ -4,6 +4,18 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v94 — live rate on the main screen — 2026-10-30
+
+The big number on the main screen is now the LIVE GBP/USD rate, not the day-old ECB reference (which the app fetches once a day at 16:00
+UTC and which the forecast and its scoring still start from). Under it: where the quote came from and how old it is, and the daily
+reference with how far the live rate has moved against it. The £ amount line converts at the live rate.
+- One shared store (work/LiveRate.kt) feeds the main screen, the Accuracy screen, the hourly alerts and the key check, so a quote is paid for
+  once. Alpha Vantage's free tier is 25 calls a day: every call goes through it and is counted (capped at 24 a day; the alert worker alone
+  can use 24). A reading under 15 min old (65 min when the alert worker keeps it warm) is reused.
+- Source order: your Alpha Vantage key, then Kraken's public ticker (no key; for people with no key or a spent limit), then the daily ECB
+  rate labelled as such. LiveRate.KRAKEN_ENABLED switches the keyless fallback off.
+- Privacy policy and Diagnostics credits list Kraken. 11 new unit tests (29 in all).
+
 ## v93 — privacy link, dark mode, encrypted key, tests — 2026-10-29
 
 - **Diagnostics:** a "Privacy policy" button opens the hosted policy (Google Play expects the app itself to link to it).

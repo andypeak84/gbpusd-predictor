@@ -57,7 +57,7 @@ class PriceAlertWorker(context: Context, params: WorkerParameters) : CoroutineWo
 
         with(PriceAlertPrefs) { applicationContext.lastFetchAttemptUtc = Instant.now().toString() }
 
-        val fetchResult = runCatching { fetchLiveRate(with(PriceAlertPrefs) { applicationContext.alphaVantageKey }) }
+        val fetchResult = runCatching { LiveRate.fetchAlphaVantage(applicationContext, with(PriceAlertPrefs) { applicationContext.alphaVantageKey }) }
         val rate = fetchResult.getOrNull()
 
         with(PriceAlertPrefs) {

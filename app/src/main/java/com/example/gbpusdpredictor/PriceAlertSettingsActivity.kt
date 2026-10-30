@@ -13,7 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.example.gbpusdpredictor.work.PriceAlertPrefs
 import com.example.gbpusdpredictor.work.PriceAlertScheduler
 import com.example.gbpusdpredictor.work.PriceAlertWorker
-import com.example.gbpusdpredictor.work.fetchLiveRate
+import com.example.gbpusdpredictor.work.LiveRate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -223,7 +223,7 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
     private fun checkKey(key: String) {
         CoroutineScope(Dispatchers.Main).launch {
             liveText.text = "Checking your key..."
-            val result = withContext(Dispatchers.IO) { runCatching { fetchLiveRate(key) } }
+            val result = withContext(Dispatchers.IO) { runCatching { LiveRate.fetchAlphaVantage(this@PriceAlertSettingsActivity, key) } }
             result.onSuccess { rate ->
                 with(PriceAlertPrefs) {
                     lastHourlyRate = rate
@@ -251,7 +251,7 @@ class PriceAlertSettingsActivity : AppCompatActivity() {
     private fun sendTestAlert() {
         CoroutineScope(Dispatchers.Main).launch {
             statusText.text = "Fetching live rate..."
-            val result = withContext(Dispatchers.IO) { runCatching { fetchLiveRate(keyInput.text.toString().trim()) } }
+            val result = withContext(Dispatchers.IO) { runCatching { LiveRate.fetchAlphaVantage(this@PriceAlertSettingsActivity, keyInput.text.toString().trim()) } }
             result.onSuccess { rate ->
                 postTestNotification(rate)
                 statusText.text = "Test alert sent -- live rate was %.4f.".format(Locale.UK, rate)

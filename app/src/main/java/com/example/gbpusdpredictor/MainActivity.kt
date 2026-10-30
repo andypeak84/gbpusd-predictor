@@ -30,6 +30,7 @@ import com.example.gbpusdpredictor.sentiment.SentimentAdjustment
 import com.example.gbpusdpredictor.sentiment.SentimentRepository
 import com.example.gbpusdpredictor.ui.RateChartView
 import com.example.gbpusdpredictor.utils.AppClock
+import com.example.gbpusdpredictor.work.LiveRate
 import com.example.gbpusdpredictor.work.MarketDataScheduler
 import com.example.gbpusdpredictor.work.SentimentScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -64,6 +65,13 @@ class MainActivity : AppCompatActivity() {
     // completes; every call site null-checks.
     private var treeModel: TreeModelPredictor? = null
     private var latestData: MarketData? = null
+
+    // The shared live GBP/USD reading (work/LiveRate) and the three lines that show it under the big number. The forecast and its scoring
+    // stay tied to the daily ECB row; these lines say where the pound is NOW.
+    private var liveReading: LiveRate.Reading? = null
+    private var liveRateView: TextView? = null
+    private var liveSourceView: TextView? = null
+    private var refNoteView: TextView? = null
     private var selectedHorizonDays: Int = MarketRepository.DEFAULT_HORIZON_DAYS.coerceIn(1, 7)
 
     // Multi-horizon compare graph: normally tapping a day button single-selects it
@@ -160,7 +168,40 @@ class MainActivity : AppCompatActivity() {
         // Purely a re-render of whatever's already stored -- cheap, and picks up a row
         // the 21:00 UTC job may have written while the app was in the background. No
         // network call happens here.
+        liveReading = LiveRate.cached(this)   // show what is already known at once; refreshed just below
         loadAndRender()
+        refreshLiveRate()
+    }
+
+    /** At most one fetch (the shared store reuses a fresh reading, and counts Alpha Vantage calls: 25 a day on the free tier). */
+    private fun refreshLiveRate() {
+        CoroutineScope(Dispatchers.Main).launch {
+            val reading = withContext(Dispatchers.IO) { runCatching { LiveRate.current(applicationContext) }.getOrNull() }
+            if (reading != null) liveReading = reading
+            updateLiveLine()
+            // the "£ amount" line uses the live rate too
+            latestData?.let { if (::predictionLine.isInitialized) renderPrediction(it) }
+        }
+    }
+
+    /** A live reading younger than 12 h, or null (then the screen shows the daily ECB rate and says so). */
+    private fun currentLive(): LiveRate.Reading? =
+        liveReading?.takeIf { java.time.Duration.between(it.at, Instant.now()).toHours() < 12 }
+
+    private fun updateLiveLine(latest: MarketData? = latestData) {
+        val ref = latest?.gbpUsd
+        val now = Instant.now()
+        val live = currentLive()
+        liveRateView?.text = if (live != null) "Live rate: ${"%.4f".format(Locale.UK, live.rate)}"
+            else "Current rate: ${fmt(ref, "%.4f")}"
+        liveSourceView?.text = if (live != null) {
+            "${live.source.label} · ${DateTimeFormatter.ofPattern("HH:mm 'UTC'").withZone(ZoneOffset.UTC).format(live.at)} · ${LiveRate.ageLabel(live, now)}"
+        } else "Daily ECB rate -- no live rate available (add an Alpha Vantage key in Price Alerts, or check your connection)"
+        refNoteView?.text = if (ref != null && latest != null) buildString {
+            append("Daily reference (ECB, ${latest.date}): ${"%.4f".format(Locale.UK, ref)}. Forecasts below start from it")
+            if (live != null) append("; live is ${"%+.2f%%".format(Locale.UK, (live.rate / ref - 1) * 100)} against it")
+            append(".")
+        } else ""
     }
 
     private fun loadAndRender() {
@@ -310,11 +351,13 @@ class MainActivity : AppCompatActivity() {
     private fun renderDetailSection(latest: MarketData) {
         detailSection.removeAllViews()
 
-        addLine(
-            detailSection,
-            "Current rate: ${fmt(latest.gbpUsd, "%.4f")}",
-            20f, Gravity.START, bold = true
-        )
+        liveRateView = TextView(this).apply { textSize = 20f; setTypeface(typeface, android.graphics.Typeface.BOLD); setPadding(0, 8, 0, 0) }
+        liveSourceView = TextView(this).apply { textSize = 12f }
+        refNoteView = TextView(this).apply { textSize = 12f; setPadding(0, 0, 0, 8) }
+        detailSection.addView(liveRateView)
+        detailSection.addView(liveSourceView)
+        detailSection.addView(refNoteView)
+        updateLiveLine(latest)
         if (latest.gbpUsd == null) {
             addLine(detailSection, "No real GBP/USD reading for ${latest.date} -- see the Bootstrap Log (View History) for why.", 12f, Gravity.START)
         }
@@ -769,12 +812,18 @@ class MainActivity : AppCompatActivity() {
                 else -> "Rate looks broadly stable over this horizon."
             } + if (sentiment != null) "  (includes news sentiment)" else ""
             gbpAmount?.let { amount ->
-                val nowUsd = amount * gbpUsd
+                val refUsd = amount * gbpUsd
                 val predUsd = amount * predictedRate
-                val diff = predUsd - nowUsd
-                amountLine.text = "£${"%,.2f".format(Locale.UK, amount)} → \$${"%,.2f".format(Locale.UK, nowUsd)} now " +
-                    "vs. \$${"%,.2f".format(Locale.UK, predUsd)} on $targetDate  (${"%+,.2f".format(Locale.UK, diff)})" +
-                    if (sentiment != null) "  — incl. news sentiment" else ""
+                val diff = predUsd - refUsd
+                val liveNow = currentLive()?.rate
+                amountLine.text = (if (liveNow != null) {
+                    "£${"%,.2f".format(Locale.UK, amount)} → \$${"%,.2f".format(Locale.UK, amount * liveNow)} at the live rate now. " +
+                        "Forecast \$${"%,.2f".format(Locale.UK, predUsd)} on $targetDate (${"%+,.2f".format(Locale.UK, diff)} against " +
+                        "\$${"%,.2f".format(Locale.UK, refUsd)} at the ${latest.date} reference)"
+                } else {
+                    "£${"%,.2f".format(Locale.UK, amount)} → \$${"%,.2f".format(Locale.UK, refUsd)} at the daily rate " +
+                        "vs. \$${"%,.2f".format(Locale.UK, predUsd)} on $targetDate  (${"%+,.2f".format(Locale.UK, diff)})"
+                }) + if (sentiment != null) "  — incl. news sentiment" else ""
             }
         } else {
             predictionLine.text = predictions.joinToString("\n") { (days, changePct, predictedRate) ->
