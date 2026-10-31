@@ -81,7 +81,7 @@ class DiagnosticsActivity : AppCompatActivity() {
 • Live GBP/USD quote (shown as "Live rate"): Alpha Vantage, using your own free key. Without a key the app shows the daily ECB rate above, labelled as such; the forecast and its scoring always use that daily rate.
 • US 2-year Treasury yield: U.S. Department of the Treasury, daily par yield curve.
 • VIX and other US market series: this product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.
-• Crude oil (Brent): OilPriceAPI (https://www.oilpriceapi.com/); the U.S. Energy Information Administration (EIA) series is used as a fallback.
+• Crude oil (Brent): OilPriceAPI (https://www.oilpriceapi.com/).
 • UK Bank Rate and gilt yields: Bank of England, published under the Open Government Licence.
 • News sentiment: headlines from the Bank of England, the Federal Reserve and other public news feeds, scored by the app's author using hand-written rules. Headline text and links belong to their publishers and are shown with a link to the original.
 

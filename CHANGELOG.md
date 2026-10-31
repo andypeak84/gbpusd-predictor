@@ -4,6 +4,15 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v95 — retire the FRED oil series — 2026-10-31
+
+The FRED/EIA oil data is gone from the app. WTI was already unused (v80). The FRED Brent series was only a fallback for the Brent
+5-day change, and it ran 3-5 business days stale, so the 1-day anchor tolerance rejected it anyway (the Data fetch log showed it as
+"NO_MATCH, source N business days stale" on about one fetch in four). Brent now comes only from brent-latest.json (OilPriceAPI, one reading
+every weekday). Removed: the two fetch functions and network/BrentPriceService.kt, network/OilPriceService.kt; the Diagnostics credits no
+longer mention the EIA fallback. Rows before 2026-10-30 are unchanged; early rows (before brent-latest had ~6 business days) keep a null
+Brent change, as before. The Oilfetcher "Fetch oil price (FRED)" Action is disabled (not deleted).
+
 ## v94 — live rate on the main screen — 2026-10-30
 
 The big number on the main screen is now the LIVE GBP/USD rate, not the day-old ECB reference (which the app fetches once a day at 16:00

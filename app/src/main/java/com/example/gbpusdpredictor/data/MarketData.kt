@@ -105,7 +105,7 @@ data class MarketData(
     // stretch where WTI's FRED series stalled for over a week; Brent is also the
     // benchmark UK/European fuel pricing tracks more closely. Same GitHub Action
     // (oil-fred-fetcher) and fetch/tolerance pattern as oilChange5d -- see
-    // MarketRepository.fetchBrentHistoryFromGitHub. Null follows the usual rule.
+    // MarketRepository.the retired FRED Brent fetch (removed in v95). Null follows the usual rule.
     val brentChange5d: Double? = null,
     // v10 -> v11: longer-trend momentum companions, zero new fetches (same
     // gbpHistory/spreadSeries already fetched for the 1d/5d versions). Added because

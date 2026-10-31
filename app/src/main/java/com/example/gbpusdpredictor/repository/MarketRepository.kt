@@ -52,7 +52,7 @@ class MarketRepository(
         // Was 3 (set by FRED's old DCOILWTICO oil series, observed 2 business days behind
         // a 1-day-back target = 3 total). Oil's raw LEVEL is out of this calculation --
         // it's dropped entirely (only oilChange5d is populated now, via a GitHub Action --
-        // see fetchOilHistoryFromGitHub) and that fetch's own SMALL anchor tolerance
+        // see the retired WTI fetch (removed in v95)) and that fetch's own SMALL anchor tolerance
         // (changeNDaysAgoFromSeries's anchorToleranceDays=1, oil's call site only) absorbs
         // its ordinary single-day lag independently, so it doesn't feed back into this
         // shared constant. That tolerance is deliberately narrow -- it covers the routine
@@ -294,17 +294,12 @@ class MarketRepository(
             // table (null) so existing rows, History and export/import are unaffected.
             val oilChange5d: Double? = null
 
-            // Brent -- a second, independent oil benchmark alongside WTI (not a
-            // replacement). See fetchBrentHistoryFromGitHub's own comment for why; same
-            // fetch/tolerance pattern as oilChange5d exactly.
-            val brentHistoryForChangeOnly = fetchBrentHistoryFromGitHub(inputDate)
-            // Prefer the fresher daily Brent series (brent-latest.json) once it has enough history for
-            // its OWN 5-day change (it started 2026-10-23, so ~6 business days of readings are needed;
-            // before that this is null). The two series are never mixed within one change, since the
-            // futures price and EIA's spot assessment differ by a basis. EIA stays as the fallback.
-            val brentLatestHistory = fetchMacroHistory("brent-latest", inputDate, purpose = "brentChange5d (fresher source)")
+            // Brent: the daily series in brent-latest.json (OilPriceAPI, recorded by a GitHub Action every weekday). It started
+            // 2026-10-23, so ~6 business days of readings are needed for its own 5-day change; earlier rows have null here. The
+            // FRED/EIA Brent series that used to be the fallback (data/brent-price.json) was retired in v95: it ran 3-5 business
+            // days stale, so its readings were rejected by the 1-day anchor tolerance anyway (see the Data fetch log).
+            val brentLatestHistory = fetchMacroHistory("brent-latest", inputDate, purpose = "brentChange5d")
             val brentChange5d = changeNDaysAgoFromSeries(brentLatestHistory, inputDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
-                ?: changeNDaysAgoFromSeries(brentHistoryForChangeOnly, inputDate, 5, toleranceDays = 2, anchorToleranceDays = 1)
 
             val giltHistory = fetchGiltYieldHistory(inputDate)
             // fetchUkRateForDate (direct BoE, Bank Rate not gilt yield -- see its own
@@ -368,7 +363,7 @@ class MarketRepository(
                 spread2y = spread2y,
                 gbpUsd = gbpUsd,
                 // oilPrice (the raw LEVEL) stays permanently null -- see
-                // fetchOilHistoryFromGitHub's own comment for the full history of why.
+                // the retired WTI fetch (removed in v95)'s own comment for the full history of why.
                 // Only the 5-day CHANGE is populated now, computed above.
                 oilPrice = null,
                 vix = vix,
@@ -491,7 +486,7 @@ class MarketRepository(
      * Action publishes (MacroService) -- NOT from FRED directly. The old direct call needed a FRED API
      * key compiled into the APK, which for a public Google Play release anyone could extract; the key
      * now lives only in the Action's secret. Same [{"date","price"}] shape, parse and outcome logging
-     * as fetchOilHistoryFromGitHub. Every call is logged via logBootstrap; the caller only ever reads the
+     * as the retired WTI fetch (removed in v95). Every call is logged via logBootstrap; the caller only ever reads the
      * exact targetDate entry (or a tolerance-bounded change) back out, never "whatever's most recent." */
     private suspend fun fetchMacroHistory(file: String, targetDate: LocalDate, purpose: String): Map<LocalDate, Double> {
         val source = "macro_${file}_github"
@@ -509,7 +504,7 @@ class MarketRepository(
             return emptyMap()
         }
         val map: Map<LocalDate, Double> = try {
-            @Suppress("DEPRECATION") // see fetchOilHistoryFromGitHub: JsonParser().parse() works across more Gson versions.
+            @Suppress("DEPRECATION") // see the retired WTI fetch (removed in v95): JsonParser().parse() works across more Gson versions.
             val root = com.google.gson.JsonParser().parse(raw)
             if (!root.isJsonArray) emptyMap() else root.asJsonArray.mapNotNull { el ->
                 try {
@@ -534,130 +529,6 @@ class MarketRepository(
         logBootstrap(source, purpose, null, null, targetDate, map, outcome)
         return map
     }
-
-    /** Recreated -- see this class's own history: FRED direct (worked, but the raw LEVEL
-     * lagged 2 business days behind target), API Ninjas (abandoned -- premium-gated for
-     * crude oil on both its historical AND current-price endpoints, confirmed via real
-     * HTTP 400s with actual error bodies), and now this: a GitHub Action
-     * (oil-fred-fetcher) that pulls FRED's DCOILWTICO fresh each run and writes it here,
-     * read back the same way gilt yield already is. Only ever used to compute
-     * oilChange5d -- a % CHANGE, not the raw price level, same reasoning as before (the
-     * project's established pattern: raw levels are the leakage-prone ones, see gbpUsd's
-     * own level being dropped entirely). Real advantage over the abandoned API Ninjas
-     * version: FRED has a genuine historical archive, so the Action re-fetches a fresh
-     * window every run rather than accumulating day by day -- no cold-start wait, and a
-     * missed run self-heals on the next successful one instead of a permanent gap. */
-    private suspend fun fetchOilHistoryFromGitHub(targetDate: LocalDate): Map<LocalDate, Double> {
-        val source = "oil_price_github_fred"
-        val purpose = "oilChange5d only (no raw price stored)"
-        val raw = try {
-            retryNetwork { com.example.gbpusdpredictor.network.OilPriceApi.service.getLatestRaw() }
-        } catch (e: Exception) {
-            Log.e("MarketRepository", "fetchOilHistoryFromGitHub failed", e)
-            logBootstrap(source, purpose, null, null, targetDate, emptyMap(), "ERROR: ${e.message}")
-            return emptyMap()
-        }
-        val entries: List<OilPriceEntry> = try {
-            @Suppress("DEPRECATION") // JsonParser().parse() works across a much wider range of
-            // Gson versions than the newer static JsonParser.parseString().
-            val root = com.google.gson.JsonParser().parse(raw)
-            when {
-                root.isJsonArray -> root.asJsonArray.mapNotNull { el ->
-                    try { oilEntryOf(el) } catch (e: Exception) { null }
-                }
-                root.isJsonObject -> listOfNotNull(
-                    try { oilEntryOf(root) } catch (e: Exception) { null }
-                )
-                else -> emptyList()
-            }
-        } catch (e: Exception) {
-            Log.w("MarketRepository", "fetchOilHistoryFromGitHub: couldn't parse response -- raw content started with: ${raw.take(80)}", e)
-            emptyList()
-        }
-        val historyByDate: Map<LocalDate, Double> = entries.mapNotNull { entry ->
-            val parsedDate = try { LocalDate.parse(entry.date) } catch (e: Exception) { null }
-            parsedDate?.let { it to entry.price }
-        }.toMap()
-        val outcome = when {
-            historyByDate.isEmpty() -> "EMPTY"
-            historyByDate.containsKey(targetDate) -> "OK"
-            else -> {
-                // Folds how stale the SOURCE itself is into the logged outcome, so a real
-                // upstream outage (e.g. FRED not publishing DCOILWTICO for days) reads as
-                // "source N business days stale" at a glance on the Bootstrap Log screen,
-                // rather than a bare NO_MATCH indistinguishable from a plain fetch miss.
-                val newestDate = historyByDate.keys.maxOrNull()
-                val staleness = newestDate?.let { AppClock.businessDaysBetween(it, targetDate) }
-                if (staleness != null) {
-                    "NO_MATCH (source $staleness business day${if (staleness == 1) "" else "s"} stale)"
-                } else {
-                    "NO_MATCH"
-                }
-            }
-        }
-        logBootstrap(source, purpose, null, null, targetDate, historyByDate, outcome)
-        return historyByDate
-    }
-
-    /** Brent crude -- a second, independent oil benchmark alongside WTI, same GitHub
-     * Action (oil-fred-fetcher) and fetch/tolerance pattern as fetchOilHistoryFromGitHub
-     * exactly, just reading data/brent-price.json via BrentPriceApi instead of
-     * data/oil-price.json. Not a replacement for WTI: Brent is the global benchmark
-     * UK/European fuel pricing actually tracks more closely, and a real comparison
-     * (2026-09) showed Brent running $15-25/barrel above WTI while staying current
-     * through a stretch where WTI's FRED series stalled for over a week -- the two carry
-     * different information (regional/geopolitical risk premiums show up in Brent
-     * first; US-specific supply/storage dynamics in WTI), so both are kept. Only ever
-     * used to compute brentChange5d -- a % CHANGE, not the raw price level, same
-     * leakage-avoidance reasoning as oilChange5d. */
-    private suspend fun fetchBrentHistoryFromGitHub(targetDate: LocalDate): Map<LocalDate, Double> {
-        val source = "brent_price_github_fred"
-        val purpose = "brentChange5d only (no raw price stored)"
-        val raw = try {
-            retryNetwork { com.example.gbpusdpredictor.network.BrentPriceApi.service.getLatestRaw() }
-        } catch (e: Exception) {
-            Log.e("MarketRepository", "fetchBrentHistoryFromGitHub failed", e)
-            logBootstrap(source, purpose, null, null, targetDate, emptyMap(), "ERROR: ${e.message}")
-            return emptyMap()
-        }
-        val entries: List<OilPriceEntry> = try {
-            @Suppress("DEPRECATION") // JsonParser().parse() works across a much wider range of
-            // Gson versions than the newer static JsonParser.parseString().
-            val root = com.google.gson.JsonParser().parse(raw)
-            when {
-                root.isJsonArray -> root.asJsonArray.mapNotNull { el ->
-                    try { oilEntryOf(el) } catch (e: Exception) { null }
-                }
-                root.isJsonObject -> listOfNotNull(
-                    try { oilEntryOf(root) } catch (e: Exception) { null }
-                )
-                else -> emptyList()
-            }
-        } catch (e: Exception) {
-            Log.w("MarketRepository", "fetchBrentHistoryFromGitHub: couldn't parse response -- raw content started with: ${raw.take(80)}", e)
-            emptyList()
-        }
-        val historyByDate: Map<LocalDate, Double> = entries.mapNotNull { entry ->
-            val parsedDate = try { LocalDate.parse(entry.date) } catch (e: Exception) { null }
-            parsedDate?.let { it to entry.price }
-        }.toMap()
-        val outcome = when {
-            historyByDate.isEmpty() -> "EMPTY"
-            historyByDate.containsKey(targetDate) -> "OK"
-            else -> {
-                val newestDate = historyByDate.keys.maxOrNull()
-                val staleness = newestDate?.let { AppClock.businessDaysBetween(it, targetDate) }
-                if (staleness != null) {
-                    "NO_MATCH (source $staleness business day${if (staleness == 1) "" else "s"} stale)"
-                } else {
-                    "NO_MATCH"
-                }
-            }
-        }
-        logBootstrap(source, purpose, null, null, targetDate, historyByDate, outcome)
-        return historyByDate
-    }
-
 
     /** Frankfurter's historical range endpoint, bounded to [targetDate - lookback,
      * targetDate]. The GBP/USD call (the default) feeds gbpUsd, gbpUsdChange5d and rsi14
