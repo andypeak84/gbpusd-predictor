@@ -30,6 +30,7 @@ import com.example.gbpusdpredictor.sentiment.SentimentAdjustment
 import com.example.gbpusdpredictor.sentiment.SentimentRepository
 import com.example.gbpusdpredictor.ui.RateChartView
 import com.example.gbpusdpredictor.utils.AppClock
+import com.example.gbpusdpredictor.utils.ForecastDate
 import com.example.gbpusdpredictor.work.LiveRate
 import com.example.gbpusdpredictor.work.MarketDataScheduler
 import com.example.gbpusdpredictor.work.SentimentScheduler
@@ -788,7 +789,7 @@ class MainActivity : AppCompatActivity() {
         if (predictions.size == 1) {
             val (days, changePct, predictedRate) = predictions.first()
             val targetDate = targetDateFor(days)
-            val base = "$days-day forecast ($targetDate): ${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)"
+            val base = "$days-day forecast (${ForecastDate.label(targetDate, AppClock.today())}):${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)"
             val modelChange = modelChanges[days]
             // Say plainly which number this is: the model alone, or the model plus the news shift
             // (then also shown in blue, with the breakdown: model alone + news = this forecast).
@@ -818,16 +819,16 @@ class MainActivity : AppCompatActivity() {
                 val liveNow = currentLive()?.rate
                 amountLine.text = (if (liveNow != null) {
                     "£${"%,.2f".format(Locale.UK, amount)} → \$${"%,.2f".format(Locale.UK, amount * liveNow)} at the live rate now. " +
-                        "Forecast \$${"%,.2f".format(Locale.UK, predUsd)} on $targetDate (${"%+,.2f".format(Locale.UK, diff)} against " +
+                        "Forecast \$${"%,.2f".format(Locale.UK, predUsd)} for ${ForecastDate.label(targetDate, AppClock.today())} (${"%+,.2f".format(Locale.UK, diff)} against " +
                         "\$${"%,.2f".format(Locale.UK, refUsd)} at the ${latest.date} reference)"
                 } else {
                     "£${"%,.2f".format(Locale.UK, amount)} → \$${"%,.2f".format(Locale.UK, refUsd)} at the daily rate " +
-                        "vs. \$${"%,.2f".format(Locale.UK, predUsd)} on $targetDate  (${"%+,.2f".format(Locale.UK, diff)})"
+                        "vs. \$${"%,.2f".format(Locale.UK, predUsd)} for ${ForecastDate.label(targetDate, AppClock.today())}  (${"%+,.2f".format(Locale.UK, diff)})"
                 }) + if (sentiment != null) "  — incl. news sentiment" else ""
             }
         } else {
             predictionLine.text = predictions.joinToString("\n") { (days, changePct, predictedRate) ->
-                "${days}d (${targetDateFor(days)}): ${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)" +
+                "${days}d (${ForecastDate.label(targetDateFor(days), AppClock.today())}):${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)" +
                     sentimentNote(days, changePct)
             }
             predictionLine.setTextColor(if (sentiment != null) com.example.gbpusdpredictor.ui.Night.accentBlue(this) else predictionDefaultColor)

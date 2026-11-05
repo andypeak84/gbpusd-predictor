@@ -13,7 +13,10 @@ Two data-timing fixes found by reading the phone's Data fetch log, with the fore
   a half after the date it holds, so the app's refresh often found nothing for the day it needed and used Bank Rate instead, which sits a few
   tenths away from the 2-year yield the model trained on. A yield older than one business day is still not used (the row's `ukRate` stays
   null then, as before, unless Bank Rate has it).
-- Unit tests: RefreshTimingTest (8 cases).
+- The forecast line says what its date is. The 1-day forecast made from yesterday's ECB rate is for today's rate (published in the
+  afternoon), which the bare date "2026-11-05" made look like a forecast for a day already under way. It now reads "today's ECB rate,
+  Thu 5 Nov", "tomorrow, Fri 6 Nov", or "Mon 9 Nov" (utils/ForecastDate.kt). The forecast itself is unchanged.
+- Unit tests: RefreshTimingTest (8 cases), ForecastDateTest (4).
 
 ## v95 — retire the FRED oil series — 2026-10-31
 
