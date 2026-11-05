@@ -86,6 +86,25 @@ class MarketRepository(
         // horizon 1-7 from the same trained model.
         const val DEFAULT_HORIZON_DAYS = 1
 
+        // The ECB fixes a day's reference rate in the afternoon, so before this UTC hour today's rate cannot exist yet and a
+        // fetch would only add a screen of "no match" rows to the Data fetch log (the 06:42 / 06:55 refreshes on 2 Nov did).
+        const val ECB_EARLIEST_PUBLISH_UTC_HOUR = 12
+
+        // The gilt snapshot lands about a day and a half after the date it holds, so the previous business day's yield is
+        // often missing at the app's refresh. A yield up to this many business days older is a far closer stand-in for the
+        // 2-year gilt yield the model trained on than Bank Rate (fetchUkRateForDate), which sits a few tenths away from it.
+        const val GILT_MAX_STALE_BUSINESS_DAYS = 1
+
+        /** False while `target` is today (UTC) and the ECB cannot have published its rate yet. */
+        fun ecbRateCanExist(target: LocalDate, nowUtc: java.time.ZonedDateTime): Boolean =
+            target.isBefore(nowUtc.toLocalDate()) || nowUtc.hour >= ECB_EARLIEST_PUBLISH_UTC_HOUR
+
+        /** The gilt yield for `inputDate`, or the latest one at most GILT_MAX_STALE_BUSINESS_DAYS earlier; null if neither. */
+        fun giltYieldFor(history: Map<LocalDate, Double>, inputDate: LocalDate): Double? =
+            history[inputDate] ?: history
+                .filterKeys { it.isBefore(inputDate) && AppClock.businessDaysBetween(it, inputDate) <= GILT_MAX_STALE_BUSINESS_DAYS }
+                .maxByOrNull { it.key }?.value
+
         /**
          * Rebuilds the exact feature map refreshData() would have built, from an already-
          * stored row. A null field is simply OMITTED from the map -- TreeModelPredictor.kt
@@ -235,6 +254,11 @@ class MarketRepository(
                 Log.i("MarketRepository", "refreshData: $targetDateStr already captured (at ${existing.first().capturedAtUtc}) -- nothing to do.")
                 return@withContext RefreshResult.SKIPPED_ALREADY_CAPTURED
             }
+            // An early run today: no anchor rate exists yet (see ecbRateCanExist), so skip every fetch and let the worker retry.
+            if (!ecbRateCanExist(targetDate, java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC))) {
+                Log.i("MarketRepository", "refreshData: $targetDateStr is today and before the ECB publishes -- not fetching, will retry.")
+                return@withContext RefreshResult.FAILED
+            }
 
             // Every field below is fetched as a full recent HISTORY (not just "latest"),
             // and only the entry whose OWN reported date exactly equals targetDate is
@@ -308,7 +332,7 @@ class MarketRepository(
             // falling back further than that to a fixed hand-maintained constant: a
             // manually-updated Bank Rate figure isn't date-matched to inputDate any more
             // than a carried-forward value was, so per this redesign it's null instead.
-            val ukRate = giltHistory[inputDate] ?: fetchUkRateForDate(inputDate)
+            val ukRate = giltYieldFor(giltHistory, inputDate) ?: fetchUkRateForDate(inputDate)
 
             val spread2y = if (ukRate != null && us2y != null) ukRate - us2y else null
             val spreadSeries = joinSpreadSeries(giltHistory, us2yHistory, toleranceDays = 3)

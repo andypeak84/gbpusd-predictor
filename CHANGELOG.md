@@ -4,6 +4,17 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v96 — fewer empty fetches, closer UK yield — 2026-11-05
+
+Two data-timing fixes found by reading the phone's Data fetch log, with the forecast model unchanged.
+- No more morning fetches that cannot succeed. Before 12:00 UTC the ECB has not published today's rate, so the refresh now skips every fetch
+  and retries later (it used to run about 20 fetches that all came back "no match", e.g. 06:42 and 06:55 on 2 Nov). Past dates are unaffected.
+- The UK 2-year yield falls back to the previous business day's gilt yield when the newest is missing. The gilt snapshot lands about a day and
+  a half after the date it holds, so the app's refresh often found nothing for the day it needed and used Bank Rate instead, which sits a few
+  tenths away from the 2-year yield the model trained on. A yield older than one business day is still not used (the row's `ukRate` stays
+  null then, as before, unless Bank Rate has it).
+- Unit tests: RefreshTimingTest (8 cases).
+
 ## v95 — retire the FRED oil series — 2026-10-31
 
 The FRED/EIA oil data is gone from the app. WTI was already unused (v80). The FRED Brent series was only a fallback for the Brent
@@ -11,7 +22,7 @@ The FRED/EIA oil data is gone from the app. WTI was already unused (v80). The FR
 "NO_MATCH, source N business days stale" on about one fetch in four). Brent now comes only from brent-latest.json (OilPriceAPI, one reading
 every weekday). Removed: the two fetch functions and network/BrentPriceService.kt, network/OilPriceService.kt; the Diagnostics credits no
 longer mention the EIA fallback. Rows before 2026-10-30 are unchanged; early rows (before brent-latest had ~6 business days) keep a null
-Brent change, as before. The Oilfetcher "Fetch oil price (FRED)" Action is disabled (not deleted).
+Brent change, as before. The Oilfetcher "Fetch oil price (FRED)" Action still runs daily and nothing reads it: disable it in GitHub (not delete).
 
 ## v94 — live rate on the main screen — 2026-10-30
 
