@@ -98,6 +98,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var chartView: RateChartView
     private lateinit var predictionLine: TextView
+    private lateinit var sinceFixLine: TextView
     private lateinit var recommendationLine: TextView
     private lateinit var amountLine: TextView
     private lateinit var horizonButtonsRow: LinearLayout
@@ -400,7 +401,9 @@ class MainActivity : AppCompatActivity() {
         predictionDefaultColor = predictionLine.currentTextColor
         recommendationLine = TextView(this@MainActivity).apply { textSize = 15f; setPadding(0, 8, 0, 8) }
         amountLine = TextView(this@MainActivity).apply { textSize = 15f; setPadding(0, 4, 0, 8) }
+        sinceFixLine = TextView(this@MainActivity).apply { textSize = 13f; setPadding(0, 0, 0, 4) }
         detailSection.addView(predictionLine)
+        detailSection.addView(sinceFixLine)
         detailSection.addView(recommendationLine)
         detailSection.addView(amountLine)
 
@@ -725,6 +728,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderPrediction(latest: MarketData) {
         amountLine.text = ""
+        sinceFixLine.text = ""
         sentimentEffectLine.text = ""
         val gbpUsd = latest.gbpUsd
         if (gbpUsd == null) {
@@ -791,6 +795,8 @@ class MainActivity : AppCompatActivity() {
             val targetDate = targetDateFor(days)
             val base = "$days-day forecast (${ForecastDate.label(targetDate, AppClock.today())}):${"%.4f".format(Locale.UK, predictedRate)}${bandFor(days, predictedRate)}  (${"%+.2f".format(Locale.UK, changePct * 100)}%)"
             val modelChange = modelChanges[days]
+            // How far the live rate has already travelled towards (or past) this forecast, from the same daily reference.
+            currentLive()?.let { sinceFixLine.text = com.example.gbpusdpredictor.utils.SinceFix.describe(it.rate / gbpUsd - 1.0, changePct) }
             // Say plainly which number this is: the model alone, or the model plus the news shift
             // (then also shown in blue, with the breakdown: model alone + news = this forecast).
             predictionLine.text = when {

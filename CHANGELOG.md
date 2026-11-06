@@ -22,6 +22,9 @@ Two data-timing fixes found by reading the phone's Data fetch log, with the fore
   says so. PredictionScorer.score takes a horizon and a forecast supplier; the 1-day table and its news comparison are unchanged.
 - The Accuracy table lists forecasts still waiting for their target day (grey, "waiting") at the top. Before, the newest call, such as
   the 5 Nov forecast for 6 Nov before the ECB publishes it, was only counted in "1 pending" and not shown.
+- A "since the reference" line under a single-horizon forecast says how much of the forecast move the live rate has already made (for
+  example "About 50% of the forecast move has already happened"), already passed it, or gone the other way. It compares the live rate
+  with the same daily reference the forecast starts from and changes no forecast. Multi-horizon views show no such line (utils/SinceFix.kt).
 - Unit tests: RefreshTimingTest (8 cases), ForecastDateTest (4), two more PredictionScorerTest cases.
 
 ## v95 — retire the FRED oil series — 2026-10-31
