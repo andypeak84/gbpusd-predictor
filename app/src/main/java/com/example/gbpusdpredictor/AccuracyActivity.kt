@@ -229,6 +229,55 @@ class AccuracyActivity : AppCompatActivity() {
                     "so they show how the model does at each length, not what an earlier screen displayed."
             }, 4)
 
+            // Formula comparison: the same forecasts (those with a news reading) scored under several ways of combining model and news, so
+            // a better formula shows itself as days accumulate instead of being guessed from a handful. Direction right out of n, per horizon.
+            // Nothing here changes the live forecast. Variants: the model alone; the formula as the main screen applies it; the same with
+            // half the weight; the news fading with the horizon (SentimentAdjustment.fadeForHorizon); and news counted only when the model's
+            // own call is near flat (inside the advice cutoff), the model alone otherwise.
+            val formulaLines = withContext(Dispatchers.Default) {
+                data class Row(val h: Int, val s: PredictionScorer.ScoredForecast, val tilt: Double)
+                val perH = (1..7).associateWith { h ->
+                    val sc = if (h == 1) PredictionScorer.score(entries).first
+                    else PredictionScorer.score(entries, h) { r ->
+                        treeModel.predictChangePct(com.example.gbpusdpredictor.repository.MarketRepository.featuresFrom(r, h))
+                    }.first
+                    val sdH = treeModel.horizonSdPct(h)
+                    sc.mapNotNull { s ->
+                        if (sdH == null) return@mapNotNull null
+                        val cutoff = com.example.gbpusdpredictor.utils.AppClock.businessDaysForward(s.forecastDate, 1)
+                            .atTime(13, 15).toEpochSecond(java.time.ZoneOffset.UTC)
+                        val reading = history.lastOrNull { it.first < cutoff }?.takeIf { cutoff - it.first <= maxAgeS } ?: return@mapNotNull null
+                        Row(h, s, com.example.gbpusdpredictor.sentiment.SentimentAdjustment.tilt(reading.second, reading.third, sdH, weight, fullStrength))
+                    }
+                }
+                val variants: List<Pair<String, (Row) -> Double>> = listOf(
+                    "Model alone" to { _ -> 0.0 },
+                    "Current formula" to { r -> r.tilt },
+                    "Half the news weight" to { r -> r.tilt * 0.5 },
+                    "News fades with the horizon" to { r -> r.tilt * com.example.gbpusdpredictor.sentiment.SentimentAdjustment.fadeForHorizon(r.h) },
+                    "News only when the model is near flat" to { r ->
+                        val flat = kotlin.math.abs(r.s.predictedChangePct) < (treeModel.adviceCutoffPctFor(r.h) ?: 0.0015)
+                        if (flat) r.tilt else 0.0
+                    }
+                )
+                variants.map { (name, tiltOf) ->
+                    val cells = (1..7).map { h ->
+                        val rs = perH.getValue(h)
+                        "${h}d ${rs.count { hitWith(it.s, tiltOf(it)) }}/${rs.size}"
+                    }
+                    val oneDay = perH.getValue(1)
+                    val err = if (oneDay.isEmpty()) "" else
+                        "  (1-day average error ${"%.3f".format(Locale.UK, 100 * oneDay.sumOf { kotlin.math.abs(it.s.predictedChangePct + tiltOf(it) - it.s.actualChangePct) } / oneDay.size)}%)"
+                    "$name: ${cells.joinToString(" · ")}$err"
+                }
+            }
+            root.addView(TextView(this@AccuracyActivity).apply {
+                textSize = 13f
+                setPadding(24, 0, 24, 8)
+                text = "Formula comparison (right direction out of the forecasts that had a news reading):\n" + formulaLines.joinToString("\n") +
+                    "\nA version is only worth switching to after about 30 scored days; with this few, differences of a forecast or two are luck."
+            }, 5)
+
             // Sweet spot: try every weight (0 to the slider's max in 0.05 steps) x full-strength story count on the same
             // forecasts and rank by direction hits, then by smaller average % error. Weight 0 = the model alone.
             if (withNews.isNotEmpty()) {

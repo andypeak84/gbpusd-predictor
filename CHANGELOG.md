@@ -25,6 +25,10 @@ Two data-timing fixes found by reading the phone's Data fetch log, with the fore
 - A "since the reference" line under a single-horizon forecast says how much of the forecast move the live rate has already made (for
   example "About 50% of the forecast move has already happened"), already passed it, or gone the other way. It compares the live rate
   with the same daily reference the forecast starts from and changes no forecast. Multi-horizon views show no such line (utils/SinceFix.kt).
+- The Accuracy screen compares formulas side by side on the forecasts that have a news reading: model alone, the current formula, half the
+  news weight, news fading with the horizon (SentimentAdjustment.fadeForHorizon: full at 1 day, none from 5), and news only when the
+  model's own call is near flat. Right direction per horizon plus the 1-day average error. It changes no forecast; a version is meant to be
+  adopted only after about 30 scored days.
 - Unit tests: RefreshTimingTest (8 cases), ForecastDateTest (4), two more PredictionScorerTest cases.
 
 ## v95 — retire the FRED oil series — 2026-10-31

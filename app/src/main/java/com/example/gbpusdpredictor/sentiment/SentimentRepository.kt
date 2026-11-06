@@ -87,6 +87,12 @@ object SentimentAdjustment {
      * whole day's run was missed, so it is dropped rather than applied. */
     const val MAX_AGE_HOURS = 30.0
 
+    /** How much of the news shift a forecast `days` business days out would keep under the "fade" idea: all of it at 1 day, then down by a
+     * quarter a day to none from 5 days on. News is a 24-hour snapshot whose pull on the pound probably fades within days, yet the shift
+     * otherwise GROWS with the horizon (it scales with the horizon's typical move). Used only by the Accuracy screen's comparison of
+     * formulas; the live forecast does not apply it. A judgement shape, not a fitted one. */
+    fun fadeForHorizon(days: Int): Double = ((5 - days) / 4.0).coerceIn(0.0, 1.0)
+
     /** Fractional shift to add to a forecast's % change (0.001 = +0.1%). weight and
      * fullStrengthStories are the user's own on-screen settings (see SentimentRepository). */
     fun tilt(
