@@ -142,9 +142,8 @@ class AccuracyActivity : AppCompatActivity() {
                     }.sortedBy { it.first }
                 }.getOrDefault(emptyList())
             }
-            val sd1 = withContext(Dispatchers.Default) {
-                com.example.gbpusdpredictor.ml.TreeModelPredictor(applicationContext).horizonSdPct(1)
-            }
+            val treeModel = withContext(Dispatchers.Default) { com.example.gbpusdpredictor.ml.TreeModelPredictor(applicationContext) }
+            val sd1 = treeModel.horizonSdPct(1)
             val weight = com.example.gbpusdpredictor.sentiment.SentimentRepository.weight(this@AccuracyActivity)
             val fullStrength = com.example.gbpusdpredictor.sentiment.SentimentRepository.fullStrengthStories(this@AccuracyActivity)
             val maxAgeS = (com.example.gbpusdpredictor.sentiment.SentimentAdjustment.MAX_AGE_HOURS * 3600).toLong()
@@ -192,6 +191,43 @@ class AccuracyActivity : AppCompatActivity() {
                     "News effect: average size ±${pct(avgTilt)} · moved the forecast towards the actual move $helped time(s), " +
                     "away $hurt time(s) · average % error ${pct(errModel)} model alone vs ${pct(errNews)} with news."
             }
+
+            // Every horizon the main screen offers (1-7 business days), scored the same way once its target day has passed. Only the
+            // 1-day call is stored, so the others are the current model re-run on each past day's stored inputs (PredictionScorer.score).
+            // The news column uses the news reading from the morning after the row's fix (13:15 UTC, as for the 1-day score above),
+            // scaled by that horizon's own typical move, exactly as the main screen scales it.
+            val horizonLines = withContext(Dispatchers.Default) {
+                (1..7).map { h ->
+                    val (sc, sm) = if (h == 1) PredictionScorer.score(entries)
+                    else PredictionScorer.score(entries, h) { r ->
+                        treeModel.predictChangePct(com.example.gbpusdpredictor.repository.MarketRepository.featuresFrom(r, h))
+                    }
+                    if (sc.isEmpty()) return@map "$h day${if (h > 1) "s" else ""}: none scored yet" +
+                        if (sm.pending > 0) " (${sm.pending} waiting on their target day)" else ""
+                    val sdH = treeModel.horizonSdPct(h)
+                    val newsHits = sc.mapNotNull { s ->
+                        if (sdH == null) return@mapNotNull null
+                        val cutoff = com.example.gbpusdpredictor.utils.AppClock.businessDaysForward(s.forecastDate, 1)
+                            .atTime(13, 15).toEpochSecond(java.time.ZoneOffset.UTC)
+                        val reading = history.lastOrNull { it.first < cutoff }?.takeIf { cutoff - it.first <= maxAgeS }
+                            ?: return@mapNotNull null
+                        val tilt = com.example.gbpusdpredictor.sentiment.SentimentAdjustment.tilt(reading.second, reading.third, sdH, weight, fullStrength)
+                        hitWith(s, tilt) to s.directionHit
+                    }
+                    val acc = "%.0f".format(Locale.UK, 100.0 * sm.directionHits / sm.scored)
+                    "$h day${if (h > 1) "s" else ""}: right direction ${sm.directionHits}/${sm.scored} ($acc%)" +
+                        " · mean error ${"%.4f".format(Locale.UK, sm.meanAbsErrorRate)}" +
+                        (if (newsHits.isNotEmpty()) " · with news ${newsHits.count { it.first }}/${newsHits.size} vs model alone ${newsHits.count { it.second }}/${newsHits.size}" else "") +
+                        if (sm.pending > 0) " · ${sm.pending} waiting" else ""
+                }
+            }
+            root.addView(TextView(this@AccuracyActivity).apply {
+                textSize = 13f
+                setPadding(24, 0, 24, 8)
+                text = "By forecast horizon (each forecast scored once its target day has passed):\n" + horizonLines.joinToString("\n") +
+                    "\nOnly the 1-day call is stored when it is made. The other horizons are today's model re-run on each day's saved inputs, " +
+                    "so they show how the model does at each length, not what an earlier screen displayed."
+            }, 4)
 
             // Sweet spot: try every weight (0 to the slider's max in 0.05 steps) x full-strength story count on the same
             // forecasts and rank by direction hits, then by smaller average % error. Weight 0 = the model alone.

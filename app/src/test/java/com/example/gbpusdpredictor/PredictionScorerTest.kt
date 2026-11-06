@@ -58,6 +58,28 @@ class PredictionScorerTest {
         assertEquals(0, summary.pending)
     }
 
+    @Test fun aThreeDayForecastIsScoredAgainstTheRateThreeBusinessDaysLater() {
+        // Mon 26 Oct call "up 0.3%"; Thu 29 Oct is 3 business days on and the pound did rise (1.3348 -> 1.3400).
+        val rows = listOf(
+            row("2026-10-26", 1.3348), row("2026-10-27", 1.3300), row("2026-10-28", 1.3310), row("2026-10-29", 1.3400)
+        )
+        val (scored, summary) = PredictionScorer.score(rows, horizonDays = 3) { 0.003 }
+        val s = scored.single { it.forecastDate.toString() == "2026-10-26" }
+        assertEquals("2026-10-29", s.targetDate.toString())
+        assertEquals(1.3400, s.actualRate, 1e-9)
+        assertTrue(s.directionHit)
+        assertEquals(1.3348 * 1.003, s.predictedRate, 1e-9)
+        // the later rows have no row three business days after them yet
+        assertEquals(3, summary.pending)
+    }
+
+    @Test fun aMultiDayCallThatTheModelCannotMakeIsSkippedNotCounted() {
+        val rows = listOf(row("2026-10-26", 1.3348), row("2026-10-29", 1.3400))
+        val (scored, summary) = PredictionScorer.score(rows, horizonDays = 3) { null }
+        assertTrue(scored.isEmpty())
+        assertEquals(0, summary.pending)
+    }
+
     @Test fun medianErrorOfTwoForecastsIsTheirMean() {
         val (_, summary) = PredictionScorer.score(listOf(
             row("2026-10-22", 1.3376, 1.3368, -0.0006), row("2026-10-23", 1.3368, 1.3354, -0.001),

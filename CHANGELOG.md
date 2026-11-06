@@ -16,7 +16,11 @@ Two data-timing fixes found by reading the phone's Data fetch log, with the fore
 - The forecast line says what its date is. The 1-day forecast made from yesterday's ECB rate is for today's rate (published in the
   afternoon), which the bare date "2026-11-05" made look like a forecast for a day already under way. It now reads "today's ECB rate,
   Thu 5 Nov", "tomorrow, Fri 6 Nov", or "Mon 9 Nov" (utils/ForecastDate.kt). The forecast itself is unchanged.
-- Unit tests: RefreshTimingTest (8 cases), ForecastDateTest (4).
+- The Accuracy screen scores every horizon, 1 to 7 business days, once the target day has passed (right direction x/y, mean error, and
+  with-news vs model-alone where a news reading exists). Only the 1-day call was ever stored, so the other horizons are the current model
+  re-run on each past day's saved inputs: they show how the model does at each length, not what an earlier screen displayed. The screen
+  says so. PredictionScorer.score takes a horizon and a forecast supplier; the 1-day table and its news comparison are unchanged.
+- Unit tests: RefreshTimingTest (8 cases), ForecastDateTest (4), two more PredictionScorerTest cases.
 
 ## v95 — retire the FRED oil series — 2026-10-31
 

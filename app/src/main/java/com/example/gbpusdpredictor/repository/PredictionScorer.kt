@@ -56,7 +56,19 @@ object PredictionScorer {
         val directionAccuracy: Double? get() = if (scored > 0) directionHits.toDouble() / scored else null
     }
 
-    fun score(allRows: List<MarketData>): Pair<List<ScoredForecast>, Summary> {
+    /**
+     * Scores the forecasts against what GBP/USD did `horizonDays` business days later.
+     *
+     * horizonDays == 1 with no `forecastFor` scores the forecast STORED on each row (what the app showed that day). The app only
+     * stores the 1-day call, so any other horizon needs `forecastFor`: it re-runs the model on the row's own stored inputs and
+     * returns that horizon's predicted change (a fraction, e.g. 0.0012), or null when it cannot. Those multi-day figures are what
+     * the current model says about each past day, not a record of what a past screen displayed.
+     */
+    fun score(
+        allRows: List<MarketData>,
+        horizonDays: Int = HORIZON_BUSINESS_DAYS,
+        forecastFor: ((MarketData) -> Double?)? = null
+    ): Pair<List<ScoredForecast>, Summary> {
         val byDate: Map<LocalDate, MarketData> = allRows
             .mapNotNull { row -> runCatching { LocalDate.parse(row.date) }.getOrNull()?.let { it to row } }
             .toMap()
@@ -65,15 +77,24 @@ object PredictionScorer {
         var pending = 0
 
         for ((forecastDate, row) in byDate) {
-            val predictedChangePct = row.predicted14dChangePct ?: continue
-            val predictedRate = row.predicted14dRate ?: continue
             val baseRate = row.gbpUsd ?: continue
+            val predictedChangePct: Double
+            val predictedRate: Double
+            if (forecastFor == null) {
+                predictedChangePct = row.predicted14dChangePct ?: continue
+                predictedRate = row.predicted14dRate ?: continue
+            } else {
+                predictedChangePct = forecastFor(row) ?: continue
+                predictedRate = baseRate * (1.0 + predictedChangePct)
+            }
 
-            val targetDate = AppClock.businessDaysForward(forecastDate, HORIZON_BUSINESS_DAYS)
+            val targetDate = AppClock.businessDaysForward(forecastDate, horizonDays)
 
             val match = (byDate[targetDate]?.let { targetDate to it })
                 ?: byDate.entries
-                    .filter { it.key.isAfter(forecastDate) }
+                    // On or after the target day only: a holiday gap is covered by the next row, but an EARLIER row would score a
+                    // multi-day forecast against a shorter move than it was made for.
+                    .filter { it.key.isAfter(forecastDate) && !it.key.isBefore(targetDate) }
                     .map { (d, r) -> Triple(d, r, abs(d.toEpochDay() - targetDate.toEpochDay())) }
                     .minByOrNull { it.third }
                     ?.takeIf { it.third <= TARGET_MATCH_TOLERANCE_DAYS }
