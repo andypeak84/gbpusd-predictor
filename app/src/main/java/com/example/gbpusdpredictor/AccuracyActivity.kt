@@ -274,6 +274,24 @@ class AccuracyActivity : AppCompatActivity() {
                 bold = true,
                 color = null
             )
+            // Forecasts already made whose target day has no actual rate yet (e.g. today's ECB rate before ~mid-afternoon):
+            // listed first so the newest call is visible, and scored once its day arrives.
+            summary.pendingForecasts.forEach { p ->
+                addRow(
+                    rows,
+                    listOf(
+                        p.forecastDate.toString(),
+                        p.targetDate.toString(),
+                        "%.4f".format(Locale.UK, p.baseRate),
+                        "%.4f".format(Locale.UK, p.predictedRate),
+                        "waiting",
+                        "%+.2f%%".format(Locale.UK, p.predictedChangePct * 100),
+                        "—", "⏳ waiting", "—", "—", "—"
+                    ),
+                    bold = false,
+                    color = Color.GRAY
+                )
+            }
             scored.forEach { s ->
                 addRow(
                     rows,

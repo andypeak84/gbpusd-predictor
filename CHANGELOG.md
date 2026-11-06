@@ -20,6 +20,8 @@ Two data-timing fixes found by reading the phone's Data fetch log, with the fore
   with-news vs model-alone where a news reading exists). Only the 1-day call was ever stored, so the other horizons are the current model
   re-run on each past day's saved inputs: they show how the model does at each length, not what an earlier screen displayed. The screen
   says so. PredictionScorer.score takes a horizon and a forecast supplier; the 1-day table and its news comparison are unchanged.
+- The Accuracy table lists forecasts still waiting for their target day (grey, "waiting") at the top. Before, the newest call, such as
+  the 5 Nov forecast for 6 Nov before the ECB publishes it, was only counted in "1 pending" and not shown.
 - Unit tests: RefreshTimingTest (8 cases), ForecastDateTest (4), two more PredictionScorerTest cases.
 
 ## v95 — retire the FRED oil series — 2026-10-31

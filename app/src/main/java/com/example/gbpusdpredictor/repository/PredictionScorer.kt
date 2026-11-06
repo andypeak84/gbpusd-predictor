@@ -45,13 +45,24 @@ object PredictionScorer {
         val directionHit: Boolean get() = (predictedChangePct >= 0.0) == (actualChangePct >= 0.0)
     }
 
+    /** A forecast already made whose target day has no actual rate yet (e.g. today's ECB rate before it is published). */
+    data class PendingForecast(
+        val forecastDate: LocalDate,
+        val targetDate: LocalDate,
+        val baseRate: Double,
+        val predictedRate: Double,
+        val predictedChangePct: Double
+    )
+
     data class Summary(
         val scored: Int,
         val directionHits: Int,
         val meanAbsErrorRate: Double,
         val medianAbsErrorRate: Double,
         /** Forecasts whose target trading day hasn't produced an actual reading yet. */
-        val pending: Int
+        val pending: Int,
+        /** The same forecasts, so the screen can list them (newest first) instead of only counting them. */
+        val pendingForecasts: List<PendingForecast> = emptyList()
     ) {
         val directionAccuracy: Double? get() = if (scored > 0) directionHits.toDouble() / scored else null
     }
@@ -75,6 +86,7 @@ object PredictionScorer {
 
         val scored = ArrayList<ScoredForecast>()
         var pending = 0
+        val pendingList = ArrayList<PendingForecast>()
 
         for ((forecastDate, row) in byDate) {
             val baseRate = row.gbpUsd ?: continue
@@ -105,6 +117,7 @@ object PredictionScorer {
 
             if (actualDate == null || actualRate == null || !actualDate.isAfter(forecastDate)) {
                 pending++
+                pendingList += PendingForecast(forecastDate, targetDate, baseRate, predictedRate, predictedChangePct)
                 continue
             }
 
@@ -135,7 +148,8 @@ object PredictionScorer {
             directionHits = scored.count { it.directionHit },
             meanAbsErrorRate = mean,
             medianAbsErrorRate = median,
-            pending = pending
+            pending = pending,
+            pendingForecasts = pendingList.sortedByDescending { it.forecastDate }
         )
     }
 }

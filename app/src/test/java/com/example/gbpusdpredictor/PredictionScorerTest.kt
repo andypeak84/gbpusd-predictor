@@ -50,6 +50,11 @@ class PredictionScorerTest {
         assertTrue(scored.isEmpty())
         assertEquals(1, summary.pending)
         assertEquals(null, summary.directionAccuracy)
+        // ...and it is listed, with the day it is waiting for (Wed 28 Oct -> Thu 29 Oct), so the screen can show it
+        val p = summary.pendingForecasts.single()
+        assertEquals("2026-10-28", p.forecastDate.toString())
+        assertEquals("2026-10-29", p.targetDate.toString())
+        assertEquals(1.3281, p.predictedRate, 1e-9)
     }
 
     @Test fun rowsWithoutAForecastAreIgnored() {
