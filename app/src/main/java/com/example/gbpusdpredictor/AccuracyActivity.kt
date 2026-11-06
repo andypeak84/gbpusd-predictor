@@ -211,7 +211,7 @@ class AccuracyActivity : AppCompatActivity() {
                             .atTime(13, 15).toEpochSecond(java.time.ZoneOffset.UTC)
                         val reading = history.lastOrNull { it.first < cutoff }?.takeIf { cutoff - it.first <= maxAgeS }
                             ?: return@mapNotNull null
-                        val tilt = com.example.gbpusdpredictor.sentiment.SentimentAdjustment.tilt(reading.second, reading.third, sdH, weight, fullStrength)
+                        val tilt = com.example.gbpusdpredictor.sentiment.SentimentAdjustment.tilt(reading.second, reading.third, sdH, weight, fullStrength, horizonDays = h)
                         hitWith(s, tilt) to s.directionHit
                     }
                     val acc = "%.0f".format(Locale.UK, 100.0 * sm.directionHits / sm.scored)
@@ -252,12 +252,13 @@ class AccuracyActivity : AppCompatActivity() {
                 }
                 val variants: List<Pair<String, (Row) -> Double>> = listOf(
                     "Model alone" to { _ -> 0.0 },
-                    "Current formula" to { r -> r.tilt },
-                    "Half the news weight" to { r -> r.tilt * 0.5 },
-                    "News fades with the horizon" to { r -> r.tilt * com.example.gbpusdpredictor.sentiment.SentimentAdjustment.fadeForHorizon(r.h) },
-                    "News only when the model is near flat" to { r ->
+                    // r.tilt is the shift WITHOUT the fade; the live formula (since v97) multiplies it by fadeForHorizon.
+                    "Live formula (news fades with the horizon)" to { r -> r.tilt * com.example.gbpusdpredictor.sentiment.SentimentAdjustment.fadeForHorizon(r.h) },
+                    "Same without the fade (before v97)" to { r -> r.tilt },
+                    "Half the news weight, with the fade" to { r -> r.tilt * 0.5 * com.example.gbpusdpredictor.sentiment.SentimentAdjustment.fadeForHorizon(r.h) },
+                    "News only when the model is near flat, with the fade" to { r ->
                         val flat = kotlin.math.abs(r.s.predictedChangePct) < (treeModel.adviceCutoffPctFor(r.h) ?: 0.0015)
-                        if (flat) r.tilt else 0.0
+                        if (flat) r.tilt * com.example.gbpusdpredictor.sentiment.SentimentAdjustment.fadeForHorizon(r.h) else 0.0
                     }
                 )
                 variants.map { (name, tiltOf) ->

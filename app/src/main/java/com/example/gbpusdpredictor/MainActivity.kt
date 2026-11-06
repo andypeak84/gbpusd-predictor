@@ -749,7 +749,7 @@ class MainActivity : AppCompatActivity() {
             val modelChange = model.predictChangePct(MarketRepository.featuresFrom(latest, days))
             modelChange?.let {
                 modelChanges[days] = it
-                val tilt = sentiment?.let { s -> SentimentAdjustment.tilt(s.score, s.articles, model.horizonSdPct(days), SentimentRepository.weight(this), SentimentRepository.fullStrengthStories(this)) } ?: 0.0
+                val tilt = sentiment?.let { s -> SentimentAdjustment.tilt(s.score, s.articles, model.horizonSdPct(days), SentimentRepository.weight(this), SentimentRepository.fullStrengthStories(this), horizonDays = days) } ?: 0.0
                 val changePct = it + tilt
                 Triple(days, changePct, gbpUsd * (1.0 + changePct))
             }
@@ -758,7 +758,7 @@ class MainActivity : AppCompatActivity() {
             sentimentEffectLine.text = "News effect on the pound: " + predictions.joinToString(", ") { (days, changePct, _) ->
                 val shift = changePct - (modelChanges[days] ?: changePct)
                 "${days}d ${"%+.2f".format(Locale.UK, shift * 100)}%"
-            }
+            } + "  (news fades with the horizon: none from 5 days)"
         }
         // "model +0.05% / news -0.03%" breakdown for a horizon, or "" when the overlay is
         // off, unavailable, or rounds to nothing at this horizon.

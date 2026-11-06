@@ -4,6 +4,16 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v97 — news fades with the forecast horizon — 2026-11-06
+
+The news shift now shrinks as the forecast looks further out: full strength at 1 day, three quarters at 2, half at 3, a quarter at 4 and none
+from 5 days on (SentimentAdjustment.fadeForHorizon, applied inside SentimentAdjustment.tilt). Before, the same headlines moved a 7-day forecast
+about 2.5 times as hard as a 1-day one, because the shift scales with the horizon's typical move, even though the news is a 24-hour snapshot and
+the Accuracy screen showed no benefit beyond 2 days. The 1-day forecast, and so the 1-day accuracy table and the widget/notification, are
+unchanged. The main screen's "News effect on the pound" line says the news fades. The Accuracy screen's per-horizon news counts and its formula
+comparison now use the faded shift, with "same without the fade" kept as a comparison row. The fade is a judgement shape, not a fitted one;
+re-check the comparison once about 30 days are scored.
+
 ## v96 — fewer empty fetches, closer UK yield — 2026-11-05
 
 Two data-timing fixes found by reading the phone's Data fetch log, with the forecast model unchanged.
