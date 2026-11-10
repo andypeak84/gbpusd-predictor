@@ -4,6 +4,21 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v98 — support and resistance on the main screen — 2026-11-10
+
+Two lines under the live rate: the nearest support and resistance, each with its distance from the live rate. Levels are the 20, 60 and 120
+trading-day lows and highs of the daily ECB rate and the round 0.05 numbers (1.3000, 1.3500...). When the pound is within 0.25% of its
+20-day low a note says so, and what past data shows; below it, that there is no reliable pattern. Information only: no forecast changes
+(utils/SupportLevels.kt, work/SupportLevelStore.kt).
+- Why only information. 17 years of GBP/USD closes (2005-2026, ml/walk_forward_long.py's cache): after the FIRST dip to a prior 20, 60 or
+  120-day low the pound rose over the next 5 days 59%, 56% and 58% of the time (181, 90 and 72 days) against 49% on an ordinary day, mean
+  +0.18% to +0.26% against -0.02%. The three windows share many of the same days and about 24 comparisons were run, so it is a faint
+  hint. The next day showed nothing reliable, and after a break below support the average next-day move was slightly down (-0.06% to
+  -0.11%). The earlier range-position features added nothing to the model, so no forecast uses these levels.
+- Data: one Frankfurter request a day (about 200 days of daily GBP/USD, the same source as the forecast) kept on the phone; with no copy the
+  lines are simply not shown. No new third party, so the privacy policy and Data safety answers are unchanged.
+- Unit tests: SupportLevelsTest (7 cases).
+
 ## v97 — news fades with the forecast horizon — 2026-11-06
 
 The news shift now shrinks as the forecast looks further out: full strength at 1 day, three quarters at 2, half at 3, a quarter at 4 and none

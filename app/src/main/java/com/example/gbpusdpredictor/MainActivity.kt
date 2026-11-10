@@ -34,6 +34,7 @@ import com.example.gbpusdpredictor.utils.ForecastDate
 import com.example.gbpusdpredictor.work.LiveRate
 import com.example.gbpusdpredictor.work.MarketDataScheduler
 import com.example.gbpusdpredictor.work.SentimentScheduler
+import com.example.gbpusdpredictor.work.SupportLevelStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -73,6 +74,9 @@ class MainActivity : AppCompatActivity() {
     private var liveRateView: TextView? = null
     private var liveSourceView: TextView? = null
     private var refNoteView: TextView? = null
+    // Support / resistance lines (utils/SupportLevels), fed by six months of daily closes (work/SupportLevelStore). Information only.
+    private var supportView: TextView? = null
+    private var supportCloses: List<Double> = emptyList()
     private var selectedHorizonDays: Int = MarketRepository.DEFAULT_HORIZON_DAYS.coerceIn(1, 7)
 
     // Multi-horizon compare graph: normally tapping a day button single-selects it
@@ -204,6 +208,21 @@ class MainActivity : AppCompatActivity() {
             if (live != null) append("; live is ${"%+.2f%%".format(Locale.UK, (live.rate / ref - 1) * 100)} against it")
             append(".")
         } else ""
+        updateSupportLine(latest)
+    }
+
+    private fun updateSupportLine(latest: MarketData? = latestData) {
+        val rate = currentLive()?.rate ?: latest?.gbpUsd
+        supportView?.text = if (rate != null) com.example.gbpusdpredictor.utils.SupportLevels.describe(supportCloses, rate) else ""
+    }
+
+    /** At most one Frankfurter request a day (SupportLevelStore); the cached closes are already on screen from renderDetailSection. */
+    private fun refreshSupportLevels() {
+        CoroutineScope(Dispatchers.Main).launch {
+            val closes = withContext(Dispatchers.IO) { runCatching { SupportLevelStore.load(applicationContext) }.getOrDefault(emptyList()) }
+            if (closes.isNotEmpty()) supportCloses = closes
+            updateSupportLine()
+        }
     }
 
     private fun loadAndRender() {
@@ -359,7 +378,11 @@ class MainActivity : AppCompatActivity() {
         detailSection.addView(liveRateView)
         detailSection.addView(liveSourceView)
         detailSection.addView(refNoteView)
+        supportView = TextView(this).apply { textSize = 12f; setPadding(0, 0, 0, 8) }
+        detailSection.addView(supportView)
+        supportCloses = SupportLevelStore.cached(this)
         updateLiveLine(latest)
+        refreshSupportLevels()
         if (latest.gbpUsd == null) {
             addLine(detailSection, "No real GBP/USD reading for ${latest.date} -- see the Bootstrap Log (View History) for why.", 12f, Gravity.START)
         }
