@@ -4,6 +4,17 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v100 — a rough chance under the forecast — 2026-11-24
+
+Under the forecast on the main screen: "Rough chance: higher than the reference 55% · inside the forecast ± band 36% · reach 1.3206 or more
+21%" (for several selected horizons, one short line each). It is an estimate, not a tested probability, and the screen says so
+(utils/ForecastOdds.kt). The centre of the outcomes is the live rate (or the reference with no live rate) moved by only 14% of the forecast
+change, the model's calibration slope on its holdout (0.138): real moves have been about that fraction of the size forecast. The spread is the
+horizon's typical move (the model's horizon_sd) as a normal distribution; "inside the band" uses the model's average miss for that horizon.
+Worked example, 23 Nov 2026 (reference 1.3074, live 1.3020, 7-day forecast +1.01%): about 40% above the reference, 26% inside the band, 12%
+to reach 1.3206, against 50% and 47% if the forecast were taken at face value. That fits the Accuracy screen's record: the 7-day call has been
+right 38% of the time (17 of 45, 10 Nov). Unit tests: ForecastOddsTest (7 cases, the worked example included).
+
 ## v99 — save the flagged stories to a file — 2026-11-24
 
 A "Save flags to a file" button beside "Export my flags" under the news list: the same CSV (time, headline, my score, scorer score, confidence,
