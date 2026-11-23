@@ -743,12 +743,13 @@ class MainActivity : AppCompatActivity() {
                 }, "Export flags"))
             }
         })
-        if (flagCount > 0) links.addView(Button(this).apply {
+        sentimentHeadlineList.addView(links)
+        // On its own row: three buttons side by side ran off the edge of the screen and the third was unreachable.
+        if (flagCount > 0) sentimentHeadlineList.addView(Button(this).apply {
             text = "Save flags to a file"
             textSize = 11f
             setOnClickListener { saveFlagsLauncher.launch("gbpusd-flags-${AppClock.today()}.csv") }
         })
-        sentimentHeadlineList.addView(links)
     }
 
     private fun showFlagDialog(h: com.example.gbpusdpredictor.sentiment.SentimentHeadline) {

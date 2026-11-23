@@ -4,6 +4,11 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v101 — the save-flags button gets its own row — 2026-11-24
+
+v99's "Save flags to a file" sat in the same row as "Show all" and "Export my flags"; three buttons ran off the right edge of the screen and
+the new one could not be tapped. It now has a row of its own. No other change.
+
 ## v100 — a rough chance under the forecast — 2026-11-24
 
 Under the forecast on the main screen: "Rough chance: higher than the reference 55% · inside the forecast ± band 36% · reach 1.3206 or more
