@@ -139,6 +139,21 @@ class MainActivity : AppCompatActivity() {
 
     private var cachedChartHistory: List<RateChartView.Point> = emptyList()
 
+    // "Save flags to a file": the same CSV as "Export my flags", written to a file the user picks (like Forecast history's Export Data),
+    // for when a share sheet is no use (the text can be large, and a file can be opened or sent on as it is).
+    private val saveFlagsLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/csv")
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                contentResolver.openOutputStream(uri)?.use {
+                    it.write(com.example.gbpusdpredictor.sentiment.SentimentFlags.exportCsv(this).toByteArray(Charsets.UTF_8))
+                }
+            }.onSuccess { Toast.makeText(this, "Flags saved", Toast.LENGTH_SHORT).show() }
+                .onFailure { Toast.makeText(this, "Save failed: ${it.message}", Toast.LENGTH_LONG).show() }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -724,6 +739,11 @@ class MainActivity : AppCompatActivity() {
                     putExtra(Intent.EXTRA_TEXT, csv)
                 }, "Export flags"))
             }
+        })
+        if (flagCount > 0) links.addView(Button(this).apply {
+            text = "Save flags to a file"
+            textSize = 11f
+            setOnClickListener { saveFlagsLauncher.launch("gbpusd-flags-${AppClock.today()}.csv") }
         })
         sentimentHeadlineList.addView(links)
     }

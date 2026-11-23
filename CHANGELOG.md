@@ -4,6 +4,12 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v99 — save the flagged stories to a file — 2026-11-24
+
+A "Save flags to a file" button beside "Export my flags" under the news list: the same CSV (time, headline, my score, scorer score, confidence,
+driver, reason, notes), written to a file the user picks, like Forecast history's Export Data. The share sheet could not hand a long list of
+flags to a computer, and typing it from the phone was the only other way. Nothing is sent anywhere; the file stays where the user saves it.
+
 ## v98 — support and resistance on the main screen — 2026-11-10
 
 Two lines under the live rate: the nearest support and resistance, each with its distance from the live rate. Levels are the 20, 60 and 120
