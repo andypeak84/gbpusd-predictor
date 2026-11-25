@@ -352,12 +352,15 @@ class MarketRepository(
 
             val spread2y = if (ukRate != null && us2y != null) ukRate - us2y else null
             val spreadSeries = joinSpreadSeries(giltHistory, us2yHistory, toleranceDays = 3)
-            val spread2yChange1d = changeNDaysAgoFromSeries(spreadSeries, inputDate, 1, toleranceDays = 1)
-            val spread2yChange5d = changeNDaysAgoFromSeries(spreadSeries, inputDate, 5, toleranceDays = 2)
+            // The spread series is keyed by gilt dates, and the gilt snapshot is usually a day behind: anchor on the newest spread up to
+            // GILT_MAX_STALE_BUSINESS_DAYS old, the same allowance ukRate gets above (giltYieldFor). With an exact-date anchor all three
+            // changes were "--" on most days (owner, 2026-11-25: "no 2yr spread").
+            val spread2yChange1d = changeNDaysAgoFromSeries(spreadSeries, inputDate, 1, toleranceDays = 1, anchorToleranceDays = GILT_MAX_STALE_BUSINESS_DAYS)
+            val spread2yChange5d = changeNDaysAgoFromSeries(spreadSeries, inputDate, 5, toleranceDays = 2, anchorToleranceDays = GILT_MAX_STALE_BUSINESS_DAYS)
             // Longer-trend companion -- same spreadSeries, no new fetch. The Fed/BoE rate
             // divergence (US hiking, UK holding) showed up as spread2y trending wider over
             // weeks, not something a 1d/5d window captures well.
-            val spread2yChange10d = changeNDaysAgoFromSeries(spreadSeries, inputDate, 10, toleranceDays = 2)
+            val spread2yChange10d = changeNDaysAgoFromSeries(spreadSeries, inputDate, 10, toleranceDays = 2, anchorToleranceDays = GILT_MAX_STALE_BUSINESS_DAYS)
 
             // FX-cross momentum -- all Frankfurter, all 5-business-day % CHANGES (never a
             // raw level), same changeNDaysAgoFromSeries + 2-day tolerance as the other

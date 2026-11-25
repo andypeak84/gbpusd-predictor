@@ -4,6 +4,12 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v103 — the 2-year spread changes come back — 2026-11-25
+
+The spread changes (1, 5 and 10 days) were "—" on most days. The spread series is keyed by gilt dates and the gilt snapshot is usually a
+day behind, while the changes needed a gilt yield for the exact input day. They now anchor on the newest spread up to one business day
+old, the same allowance the UK rate itself has had since v96 (GILT_MAX_STALE_BUSINESS_DAYS). The forecast model is unchanged.
+
 ## v102 — VIX backup from Cboe — 2026-11-25
 
 FRED's VIX (via the Oilfetcher repo) runs one to three business days late, so the forecast often had no VIX and no VIX 5-day change (23 Nov:
