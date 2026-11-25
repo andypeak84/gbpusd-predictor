@@ -4,6 +4,13 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v104 — the spread's 10-day change in points — 2026-11-25
+
+The features list showed "Spread (UK-US 2yr) 10d change: -1695.40%". The model's input is the % change of the spread (that is how it was
+trained), and a % change explodes when the spread sits near zero: this was a move from about -0.003 to +0.050, a rise of 0.053 points. The
+line now reads "+0.053 pts (model input -1695.40%)" (utils/SpreadMove.kt). The model's input is unchanged; replacing it with the change in
+points needs a retrain.
+
 ## v103 — the 2-year spread changes come back — 2026-11-25
 
 The spread changes (1, 5 and 10 days) were "—" on most days. The spread series is keyed by gilt dates and the gilt snapshot is usually a

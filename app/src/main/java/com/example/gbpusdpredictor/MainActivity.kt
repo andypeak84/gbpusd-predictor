@@ -383,6 +383,12 @@ class MainActivity : AppCompatActivity() {
     private fun fmt(value: Double?, pattern: String): String = value?.let { pattern.format(Locale.UK, it) } ?: "—"
     private fun fmtPct(value: Double?): String = value?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—"
 
+    /** "+0.053 pts (model input -1695%)": a spread change as the move in percentage points (see utils/SpreadMove). */
+    private fun spreadMoveLabel(spread: Double?, change: Double?): String {
+        val pts = com.example.gbpusdpredictor.utils.SpreadMove.points(spread, change) ?: return fmtPct(change)
+        return "${"%+.3f".format(Locale.UK, pts)} pts  (model input ${fmtPct(change)})"
+    }
+
     /** Everything that depends on the current row -- current rate, chart, horizon-based
      * forecast, feature breakdown. */
     private fun renderDetailSection(latest: MarketData) {
@@ -468,7 +474,9 @@ class MainActivity : AppCompatActivity() {
         addLine(detailSection, "GBP/USD 1d change: ${fmtPct(latest.gbpUsdChange1d)}", 14f, Gravity.START)
         addLine(detailSection, "GBP/USD 10d change: ${fmtPct(latest.gbpUsdChange10d)}", 14f, Gravity.START)
         addLine(detailSection, "GBP/USD 20d change: ${fmtPct(latest.gbpUsdChange20d)}", 14f, Gravity.START)
-        addLine(detailSection, "Spread (UK-US 2yr) 10d change: ${fmtPct(latest.spread2yChange10d)}", 14f, Gravity.START)
+        // The model's input is the % change of the spread (as trained), which explodes when the spread is near zero: 25 Nov 2026 showed
+        // -1695% for a move from about -0.003 to +0.050. Show the move in percentage points, with the model's % beside it.
+        addLine(detailSection, "Spread (UK-US 2yr) 10d change: ${spreadMoveLabel(latest.spread2y, latest.spread2yChange10d)}", 14f, Gravity.START)
         addLine(detailSection, "USD basket 1d change (vs EUR/JPY/CAD/CHF): ${fmtPct(latest.usdBasketChange1d)}", 14f, Gravity.START)
         addLine(
             detailSection,
