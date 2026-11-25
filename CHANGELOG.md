@@ -8,7 +8,7 @@ the record of what changed and why.
 
 The features list showed "Spread (UK-US 2yr) 10d change: -1695.40%". The model's input is the % change of the spread (that is how it was
 trained), and a % change explodes when the spread sits near zero: this was a move from about -0.003 to +0.050, a rise of 0.053 points. The
-line now reads "+0.053 pts (model input -1695.40%)" (utils/SpreadMove.kt). The model's input is unchanged; replacing it with the change in
+line now reads "+0.053 points" (utils/SpreadMove.kt); the % was dropped from the screen as meaningless (owner). The model's input is unchanged; replacing it with the change in
 points needs a retrain.
 
 ## v103 — the 2-year spread changes come back — 2026-11-25

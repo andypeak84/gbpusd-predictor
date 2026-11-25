@@ -383,10 +383,11 @@ class MainActivity : AppCompatActivity() {
     private fun fmt(value: Double?, pattern: String): String = value?.let { pattern.format(Locale.UK, it) } ?: "—"
     private fun fmtPct(value: Double?): String = value?.let { "%+.2f%%".format(Locale.UK, it * 100) } ?: "—"
 
-    /** "+0.053 pts (model input -1695%)": a spread change as the move in percentage points (see utils/SpreadMove). */
+    /** "+0.053 points": a spread change as the move in percentage points (see utils/SpreadMove). The model's own input, a % change, is
+     * not shown: near a zero spread it runs to four figures (-1695% on 25 Nov 2026) and the owner found it meaningless. */
     private fun spreadMoveLabel(spread: Double?, change: Double?): String {
-        val pts = com.example.gbpusdpredictor.utils.SpreadMove.points(spread, change) ?: return fmtPct(change)
-        return "${"%+.3f".format(Locale.UK, pts)} pts  (model input ${fmtPct(change)})"
+        val pts = com.example.gbpusdpredictor.utils.SpreadMove.points(spread, change) ?: return "—"
+        return "${"%+.3f".format(Locale.UK, pts)} points"
     }
 
     /** Everything that depends on the current row -- current rate, chart, horizon-based
