@@ -4,6 +4,16 @@ This project is now under git version control (`E:\claudes-space\gbp project\new
 initial commit 2026-09-15). This file plus the inline comment at each change site remain
 the record of what changed and why.
 
+## v102 — VIX backup from Cboe — 2026-11-25
+
+FRED's VIX (via the Oilfetcher repo) runs one to three business days late, so the forecast often had no VIX and no VIX 5-day change (23 Nov:
+FRED stopped at 19 Nov while VIX closed at 35.89 on 20 Nov, up from 28.44). FRED stays the main source; when it does not have the day
+needed, the phone reads Cboe's own daily VIX file (cdn.cboe.com, VIX_History.csv) and fills only the missing dates (owner: "use it as a
+backup"). One download per refresh run, logged in the Data fetch log as cboe_vix_csv. Personal use only: the app was pulled from Play testing
+on 2026-11-25 and runs only on the owner's phone; Cboe's terms allow personal, non-commercial use and forbid redistribution without a
+licence, so this must not ship to other users as it is (network/CboeVixService.kt). Rows already stored without VIX are re-fetched by the
+next refresh, as for any row missing a core field. Unit tests: CboeVixTest (4).
+
 ## v101 — the save-flags button gets its own row — 2026-11-24
 
 v99's "Save flags to a file" sat in the same row as "Show all" and "Export my flags"; three buttons ran off the right edge of the screen and

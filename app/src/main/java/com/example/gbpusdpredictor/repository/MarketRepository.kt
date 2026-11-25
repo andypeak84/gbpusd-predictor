@@ -95,6 +95,22 @@ class MarketRepository(
         // 2-year gilt yield the model trained on than Bank Rate (fetchUkRateForDate), which sits a few tenths away from it.
         const val GILT_MAX_STALE_BUSINESS_DAYS = 1
 
+        /** Reads Cboe's VIX_History.csv ("DATE,OPEN,HIGH,LOW,CLOSE", dates MM/DD/YYYY) into date -> close, keeping only the last
+         * [keepLast] rows (the file goes back to 1990; the model needs a few weeks). Unreadable lines are skipped. */
+        fun parseCboeVixCsv(text: String, keepLast: Int = 120): Map<LocalDate, Double> {
+            val fmt = DateTimeFormatter.ofPattern("MM/dd/yyyy", Locale.US)
+            return text.trim().lines().takeLast(keepLast).mapNotNull { line ->
+                val cells = line.split(',')
+                if (cells.size < 5) return@mapNotNull null
+                val date = runCatching { LocalDate.parse(cells[0].trim(), fmt) }.getOrNull() ?: return@mapNotNull null
+                val close = cells[4].trim().toDoubleOrNull() ?: return@mapNotNull null
+                if (close <= 0.0) null else date to close
+            }.toMap()
+        }
+
+        /** FRED (the main source, owner's choice 2026-11-25: "use it as a backup") wins on any date both have; Cboe only fills gaps. */
+        fun mergeVix(fred: Map<LocalDate, Double>, cboe: Map<LocalDate, Double>): Map<LocalDate, Double> = cboe + fred
+
         /** False while `target` is today (UTC) and the ECB cannot have published its rate yet. */
         fun ecbRateCanExist(target: LocalDate, nowUtc: java.time.ZonedDateTime): Boolean =
             target.isBefore(nowUtc.toLocalDate()) || nowUtc.hour >= ECB_EARLIEST_PUBLISH_UTC_HOUR
@@ -308,7 +324,7 @@ class MarketRepository(
             // Zero-new-fetch momentum companion -- same us2yHistory already fetched above.
             val us2yChange5d = changeNDaysAgoFromSeries(us2yHistory, inputDate, 5, toleranceDays = 2)
 
-            val vixHistory = fetchMacroHistory("vix", inputDate, purpose = "vix")
+            val vixHistory = fetchVixHistory(inputDate)
             val vix = vixHistory[inputDate]
             // Zero-new-fetch momentum companion -- same vixHistory already fetched above.
             val vixChange5d = changeNDaysAgoFromSeries(vixHistory, inputDate, 5, toleranceDays = 2)
@@ -512,6 +528,33 @@ class MarketRepository(
      * now lives only in the Action's secret. Same [{"date","price"}] shape, parse and outcome logging
      * as the retired WTI fetch (removed in v95). Every call is logged via logBootstrap; the caller only ever reads the
      * exact targetDate entry (or a tolerance-bounded change) back out, never "whatever's most recent." */
+    // One Cboe download per refresh run, not one per date: captureDate runs for up to CATCH_UP_BUSINESS_DAYS + 1 dates.
+    private var cboeVixCache: Pair<Long, Map<LocalDate, Double>>? = null
+
+    /** VIX for the model: FRED's copy from the Oilfetcher repo first. When it does not have the day needed (it runs one to three
+     * business days late), Cboe's own daily file, fetched on the phone (see CboeVixService for why that is personal use only), fills
+     * the gaps. Each source is logged in the Data fetch log. */
+    private suspend fun fetchVixHistory(targetDate: LocalDate): Map<LocalDate, Double> {
+        val fred = fetchMacroHistory("vix", targetDate, purpose = "vix")
+        if (fred.containsKey(targetDate)) return fred
+        val now = System.currentTimeMillis()
+        val cboe = cboeVixCache?.takeIf { now - it.first < 10 * 60_000L }?.second ?: run {
+            val source = "cboe_vix_csv"
+            val purpose = "vix / vixChange5d (Cboe backup, on the phone)"
+            val map = try {
+                parseCboeVixCsv(retryNetwork { com.example.gbpusdpredictor.network.CboeVixApi.service.getVixHistoryCsv() })
+            } catch (e: Exception) {
+                Log.e("MarketRepository", "Cboe VIX fetch failed", e)
+                logBootstrap(source, purpose, null, null, targetDate, emptyMap(), "ERROR: ${e.message}")
+                return@run emptyMap<LocalDate, Double>()
+            }
+            logBootstrap(source, purpose, null, null, targetDate, map, if (map.isEmpty()) "EMPTY" else if (map.containsKey(targetDate)) "OK" else "NO_MATCH")
+            if (map.isNotEmpty()) cboeVixCache = now to map
+            map
+        }
+        return mergeVix(fred, cboe)
+    }
+
     private suspend fun fetchMacroHistory(file: String, targetDate: LocalDate, purpose: String): Map<LocalDate, Double> {
         val source = "macro_${file}_github"
         val raw = try {
